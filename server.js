@@ -196,6 +196,38 @@ function buildPreviewSvgMarkup(room) {
   return svg;
 }
 
+
+function buildArchiveSvgMarkup(archive) {
+  const { bg1, bg2, stroke1, stroke2, accent1, accent2 } = themedPreviewConfig(archive.roomSlug);
+  const replayStrokes = Array.isArray(archive.replayStrokes) ? archive.replayStrokes : [];
+  const strokeMarkup = replayStrokes.map((stroke, index) => {
+    const points = Array.isArray(stroke.points) ? stroke.points.slice(0, MAX_REPLAY_POINTS_PER_STROKE) : [];
+    if (!points.length) return "";
+    const pointString = points.map((point) => `${Math.round(point.x / 2)},${Math.round(point.y / 2.24)}`).join(" " );
+    const size = Math.max(2, Math.min(10, Math.round((stroke.size || 6) / 1.5)));
+    const color = stroke.tool === "eraser" ? "rgba(20,24,45,0.96)" : (stroke.color || stroke1);
+    return `<polyline points="${escapeXml(pointString)}" fill="none" stroke="${escapeXml(color)}" stroke-width="${size}" stroke-linecap="round" stroke-linejoin="round" opacity="${0.78 + ((index % 3) * 0.07)}" />`;
+  }).join("");
+
+  return `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 340" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="${bg1}" />
+          <stop offset="100%" stop-color="${bg2}" />
+        </linearGradient>
+      </defs>
+      <rect width="600" height="340" fill="url(#g)" />
+      <g opacity="0.2">
+        <path d="M0 28 H600 M0 56 H600 M0 84 H600 M0 112 H600 M0 140 H600 M0 168 H600 M0 196 H600 M0 224 H600 M0 252 H600 M0 280 H600 M0 308 H600" stroke="#ffffff" stroke-width="1"/>
+        <path d="M28 0 V340 M56 0 V340 M84 0 V340 M112 0 V340 M140 0 V340 M168 0 V340 M196 0 V340 M224 0 V340 M252 0 V340 M280 0 V340 M308 0 V340 M336 0 V340 M364 0 V340 M392 0 V340 M420 0 V340 M448 0 V340 M476 0 V340 M504 0 V340 M532 0 V340 M560 0 V340" stroke="#ffffff" stroke-width="1"/>
+      </g>
+      <g>${strokeMarkup}</g>
+      <rect x="16" y="16" width="320" height="36" rx="18" fill="rgba(12,14,26,0.76)" />
+      <text x="32" y="39" fill="#f5f7ff" font-family="Arial, sans-serif" font-size="16" font-weight="700">${escapeXml(archive.roomName)} · Round ${archive.roundNumber}</text>
+    </svg>`;
+}
+
 function makePreviewSvgFromState(room) {
   return `data:image/svg+xml;utf8,${encodeURIComponent(buildPreviewSvgMarkup(room))}`;
 }
@@ -423,7 +455,7 @@ function archiveRoom(room, reason) {
     participants: participantNames,
     replayStrokes,
   };
-  const archiveSvg = buildPreviewSvgMarkup(room);
+  const archiveSvg = buildArchiveSvgMarkup(archive);
   writeSvgFile(path.join(GENERATED_ARCHIVES_DIR, `${archiveId}.svg`), archiveSvg);
   writeSvgFile(archiveImageFilePath(archiveId, title), archiveSvg);
   archive.featuredScore = computeFeaturedScore(archive);
@@ -600,8 +632,10 @@ app.get("/archive/:id", (req, res) => {
         </div>
       </div>
     </div>
+    <script id="replayData" type="application/json">${replayJson}</script>
     <script>
-      const strokes = JSON.parse(document.getElementById('replayData').textContent);
+      const replayNode = document.getElementById('replayData');
+      const strokes = replayNode ? JSON.parse(replayNode.textContent) : [];
       const canvas = document.getElementById('replayCanvas');
       const ctx = canvas.getContext('2d');
       const playBtn = document.getElementById('playBtn');
@@ -621,7 +655,6 @@ app.get("/archive/:id", (req, res) => {
       progressRange.addEventListener('input', (e)=>{ pause(); redrawTo(Number(e.target.value)||0); });
       redrawTo(0);
     </script>
-    <script id="replayData" type="application/json">${replayJson}</script>
   </body>
   </html>`;
   res.send(html);
