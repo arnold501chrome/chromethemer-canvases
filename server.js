@@ -29,12 +29,17 @@ const MIN_STROKE_INTERVAL_MS = 90;
 const MAX_POINTS_PER_STROKE = 140;
 const MAX_BRUSH_SIZE = 18;
 const ARCHIVE_STORE_PATH = path.join(__dirname, "data", "archives.json");
+const GENERATED_DIR = path.join(__dirname, "public", "generated");
+const GENERATED_ARCHIVES_DIR = path.join(GENERATED_DIR, "archives");
+const GENERATED_ROOMS_DIR = path.join(GENERATED_DIR, "rooms");
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 function ensureDataDir() {
   fs.mkdirSync(path.dirname(ARCHIVE_STORE_PATH), { recursive: true });
+  fs.mkdirSync(GENERATED_ARCHIVES_DIR, { recursive: true });
+  fs.mkdirSync(GENERATED_ROOMS_DIR, { recursive: true });
 }
 
 function randomBetween(min, max) {
@@ -105,7 +110,7 @@ function themedPreviewConfig(slug) {
   return configs[slug] || configs["friday-graffiti"];
 }
 
-function makePreviewSvgFromState(room) {
+function buildPreviewSvgMarkup(room) {
   const { bg1, bg2, stroke1, stroke2, accent1, accent2 } = themedPreviewConfig(room.slug);
   const recentStrokes = room.strokes.slice(-MAX_RECENT_PREVIEW_STROKES);
   const strokeMarkup = recentStrokes.map((stroke, index) => {
@@ -144,7 +149,24 @@ function makePreviewSvgFromState(room) {
       <rect x="16" y="16" width="220" height="36" rx="18" fill="rgba(12,14,26,0.76)" />
       <text x="32" y="39" fill="#f5f7ff" font-family="Arial, sans-serif" font-size="16" font-weight="700">${escapeXml(label)}</text>
     </svg>`;
-  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  return svg;
+}
+
+function makePreviewSvgFromState(room) {
+  return `data:image/svg+xml;utf8,${encodeURIComponent(buildPreviewSvgMarkup(room))}`;
+}
+
+function writeSvgFile(targetPath, svgMarkup) {
+  ensureDataDir();
+  fs.writeFileSync(targetPath, svgMarkup, "utf8");
+}
+
+function roomPreviewPublicPath(room) {
+  return `/generated/rooms/${room.slug}.svg`;
+}
+
+function archivePreviewPublicPath(archiveId) {
+  return `/generated/archives/${archiveId}.svg`;
 }
 
 function createRoom(slug, name, theme, countries) {
@@ -180,6 +202,11 @@ const rooms = new Map([
   ["pixel-party", createRoom("pixel-party", "Pixel Party", "Bright browser chaos", ["South Africa", "USA", "India", "Argentina"])],
   ["midnight-mural", createRoom("midnight-mural", "Midnight Mural", "Dark neon collaboration", ["South Africa", "Germany", "Italy"])],
 ]);
+
+
+for (const room of rooms.values()) {
+  updateRoomPreview(room);
+}
 
 function loadArchives() {
   ensureDataDir();
@@ -263,7 +290,9 @@ function markRoomUpdated(room) {
 }
 
 function updateRoomPreview(room) {
-  room.snapshotUrl = makePreviewSvgFromState(room);
+  const svgMarkup = buildPreviewSvgMarkup(room);
+  writeSvgFile(path.join(GENERATED_ROOMS_DIR, `${room.slug}.svg`), svgMarkup);
+  room.snapshotUrl = roomPreviewPublicPath(room);
 }
 
 function broadcastLobby() {
@@ -310,8 +339,9 @@ function archiveRoom(room, reason) {
     name: stroke.name || "Guest",
     createdAt: stroke.createdAt || createdAt,
   }));
+  const archiveId = `${room.slug}-${formatArchiveDate(createdAt)}`;
   const archive = {
-    id: `${room.slug}-${formatArchiveDate(createdAt)}`,
+    id: archiveId,
     roomSlug: room.slug,
     roomName: room.name,
     roundNumber: room.roundNumber,
@@ -326,6 +356,7 @@ function archiveRoom(room, reason) {
     participants: participantNames,
     replayStrokes,
   };
+  writeSvgFile(path.join(GENERATED_ARCHIVES_DIR, `${archiveId}.svg`), buildPreviewSvgMarkup(room));
   archive.featuredScore = computeFeaturedScore(archive);
   archives.unshift(archive);
   archives = archives.slice(0, MAX_ARCHIVES);
@@ -685,6 +716,62 @@ setInterval(() => {
     if (room.roundEndsAt <= now) resetRoom(room, "timer");
   }
 }, 5000);
+
+
+app.get("/archives", (_req, res) => {
+  const items = recentArchives(120).map((archive) => `
+    <article class="card item">
+      <img src="${archive.snapshotUrl}" alt="${escapeXml(archive.title)} preview" />
+      <div class="body">
+        <h2><a href="${archive.url}">${escapeXml(archive.title)}</a></h2>
+        <p>${archive.participantCount} contributors · ${archive.countryCount} countries · ${archive.strokeCount} strokes · ${escapeXml(new Date(archive.createdAt).toUTCString())}</p>
+        <div class="chips">
+          <a class="chip link" href="${archive.replayUrl}">Replay</a>
+          <span class="chip">Peak ${archive.peakDrawers}</span>
+          <span class="chip">Round ${archive.roundNumber}</span>
+        </div>
+      </div>
+    </article>`).join("");
+  const html = `<!DOCTYPE html>
+  <html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Canvas Archive Index | ChromeThemer Canvases</title>
+    <meta name="description" content="Browse the latest replayable collaborative canvas archives from ChromeThemer Canvases." />
+    <style>body{margin:0;font-family:Inter,Arial,sans-serif;background:linear-gradient(180deg,#0f1220,#13172a);color:#f5f7ff;padding:24px}.wrap{max-width:1240px;margin:0 auto}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.card{background:linear-gradient(180deg,#1f2442,#181b31);border:1px solid rgba(255,255,255,.08);border-radius:24px;overflow:hidden;box-shadow:0 18px 48px rgba(0,0,0,.24)}img{width:100%;display:block;aspect-ratio:16/9;object-fit:cover}.body{padding:18px}.chips{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}.chip{padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:#b9bfdc;text-decoration:none}a{color:#fff}.nav{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}.btn{padding:10px 14px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:#fff;text-decoration:none;font-weight:700}@media (max-width:980px){.grid{grid-template-columns:1fr 1fr}}@media (max-width:640px){.grid{grid-template-columns:1fr}}</style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="nav"><a class="btn" href="/">← Back to live canvases</a><a class="btn" href="/featured">Featured drawings</a></div>
+      <h1>Canvas Archive Index</h1>
+      <p>Browse replayable collaborative rounds, saved snapshots, and archive pages generated automatically as live canvases finish.</p>
+      <div class="grid">${items || '<p>No archives yet.</p>'}</div>
+    </div>
+  </body>
+  </html>`;
+  res.send(html);
+});
+
+app.get("/sitemap.xml", (_req, res) => {
+  const staticUrls = [
+    "/",
+    "/archives",
+    "/featured",
+  ];
+  const entries = [
+    ...staticUrls.map((url) => ({ loc: `https://canvases.chromethemer.com${url}`, lastmod: nowIso() })),
+    ...archives.map((archive) => ({ loc: `https://canvases.chromethemer.com/archive/${archive.id}`, lastmod: archive.createdAt })),
+  ];
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${entries.map((entry) => `  <url>
+    <loc>${escapeXml(entry.loc)}</loc>
+    <lastmod>${escapeXml(entry.lastmod)}</lastmod>
+  </url>`).join("\n")}
+</urlset>`;
+  res.type("application/xml").send(xml);
+});
 
 app.get("*", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
