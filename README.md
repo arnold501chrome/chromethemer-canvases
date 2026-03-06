@@ -56,8 +56,14 @@ Join the same room in both windows and draw. Strokes should appear live for ever
 
 This is still a prototype.
 
+It now includes:
+- archive metadata persisted to `storage/data/archives.json`
+- generated archive images under `storage/images/`
+- generated room and archive SVGs under `storage/generated/`
+- atomic archive writes to reduce corruption risk
+
 It does **not** yet include:
-- persistent database storage
+- external database storage
 - moderation tools
 - real snapshot generation from canvas state
 - archived image export pages
@@ -79,3 +85,25 @@ After you test this locally, the next step would be to create:
 - Featured drawings page at /featured
 - Richer archive cards with replay links
 - Live room previews remain generated from real canvas state
+
+
+## Storage and durability
+
+This build moves archive metadata and generated assets into a dedicated `storage/` directory.
+
+By default the app stores data in:
+
+- `storage/data/archives.json`
+- `storage/images/`
+- `storage/generated/archives/`
+- `storage/generated/rooms/`
+
+You can override the storage root with the `STORAGE_DIR` environment variable.
+
+Example:
+
+```bash
+STORAGE_DIR=/path/to/persistent/storage npm start
+```
+
+For Render or other hosts, point `STORAGE_DIR` at a persistent disk mount if you want archives and generated images to survive redeploys and restarts.

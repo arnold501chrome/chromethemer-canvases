@@ -28,20 +28,30 @@ const STROKE_WINDOW_MS = 10000;
 const MIN_STROKE_INTERVAL_MS = 90;
 const MAX_POINTS_PER_STROKE = 140;
 const MAX_BRUSH_SIZE = 18;
-const ARCHIVE_STORE_PATH = path.join(__dirname, "data", "archives.json");
-const GENERATED_DIR = path.join(__dirname, "public", "generated");
+const STORAGE_ROOT = path.resolve(process.env.STORAGE_DIR || path.join(__dirname, "storage"));
+const ARCHIVE_STORE_PATH = path.join(STORAGE_ROOT, "data", "archives.json");
+const GENERATED_DIR = path.join(STORAGE_ROOT, "generated");
 const GENERATED_ARCHIVES_DIR = path.join(GENERATED_DIR, "archives");
 const GENERATED_ROOMS_DIR = path.join(GENERATED_DIR, "rooms");
-const GENERATED_IMAGES_DIR = path.join(__dirname, "public", "images");
+const GENERATED_IMAGES_DIR = path.join(STORAGE_ROOT, "images");
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static(path.join(__dirname, "public")));
+app.use("/generated", express.static(GENERATED_DIR));
+app.use("/images", express.static(GENERATED_IMAGES_DIR));
 
 function ensureDataDir() {
   fs.mkdirSync(path.dirname(ARCHIVE_STORE_PATH), { recursive: true });
   fs.mkdirSync(GENERATED_ARCHIVES_DIR, { recursive: true });
   fs.mkdirSync(GENERATED_ROOMS_DIR, { recursive: true });
   fs.mkdirSync(GENERATED_IMAGES_DIR, { recursive: true });
+}
+
+
+function writeJsonAtomic(filePath, value) {
+  const tempPath = `${filePath}.tmp`;
+  fs.writeFileSync(tempPath, JSON.stringify(value, null, 2));
+  fs.renameSync(tempPath, filePath);
 }
 
 function randomBetween(min, max) {
@@ -314,10 +324,21 @@ function normalizeArchiveRecord(archive) {
 
 archives = archives.map(normalizeArchiveRecord).filter(Boolean);
 
+function ensureArchiveAssets(archive) {
+  if (!archive) return;
+  const archiveSvg = buildArchiveSvgMarkup(archive);
+  writeSvgFile(path.join(GENERATED_ARCHIVES_DIR, `${archive.id}.svg`), archiveSvg);
+  writeSvgFile(archiveImageFilePath(archive.id, archive.title), archiveSvg);
+}
+
+archives.forEach(ensureArchiveAssets);
+
 function saveArchives() {
   ensureDataDir();
-  fs.writeFileSync(ARCHIVE_STORE_PATH, JSON.stringify(archives.slice(0, MAX_ARCHIVES), null, 2));
+  writeJsonAtomic(ARCHIVE_STORE_PATH, archives.slice(0, MAX_ARCHIVES));
 }
+
+Array.from(rooms.values()).forEach(updateRoomPreview);
 
 function serializeRoom(room) {
   return {
