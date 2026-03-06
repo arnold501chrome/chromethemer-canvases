@@ -21,6 +21,8 @@ const ROUND_MINUTES_MIN = 12;
 const ROUND_MINUTES_MAX = 28;
 const MAX_RECENT_PREVIEW_STROKES = 60;
 const MAX_ARCHIVES = 120;
+const MAX_ARCHIVE_STROKES = 900;
+const MAX_REPLAY_POINTS_PER_STROKE = 160;
 const MAX_STROKES_PER_WINDOW = 18;
 const STROKE_WINDOW_MS = 10000;
 const MIN_STROKE_INTERVAL_MS = 90;
@@ -230,11 +232,26 @@ function serializeArchive(archive) {
     snapshotUrl: archive.snapshotUrl,
     title: archive.title,
     url: `/archive/${archive.id}`,
+    replayUrl: `/archive/${archive.id}#replay`,
+    featuredScore: archive.featuredScore || 0,
+    participants: Array.isArray(archive.participants) ? archive.participants.slice(0, 12) : [],
   };
 }
 
 function recentArchives(limit = 8) {
   return archives.slice(0, limit).map(serializeArchive);
+}
+
+function featuredArchives(limit = 12) {
+  return archives
+    .slice()
+    .sort((a, b) => (b.featuredScore || 0) - (a.featuredScore || 0) || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, limit)
+    .map(serializeArchive);
+}
+
+function computeFeaturedScore(archive) {
+  return (archive.strokeCount * 1.2) + (archive.participantCount * 20) + (archive.peakDrawers * 10) + (archive.countryCount * 12);
 }
 
 function getLobbyRooms() {
@@ -255,6 +272,10 @@ function broadcastLobby() {
 
 function broadcastArchives() {
   io.emit("archives:update", recentArchives());
+}
+
+function broadcastFeatured() {
+  io.emit("featured:update", featuredArchives());
 }
 
 function broadcastRoomState(room) {
@@ -280,6 +301,15 @@ function archiveRoom(room, reason) {
   if (!room.strokes.length) return null;
   const createdAt = nowIso();
   const participantIds = new Set(room.strokes.map((stroke) => stroke.userId));
+  const participantNames = Array.from(new Set(room.strokes.map((stroke) => stroke.name).filter(Boolean))).slice(0, 18);
+  const replayStrokes = room.strokes.slice(-MAX_ARCHIVE_STROKES).map((stroke) => ({
+    color: stroke.color || "#ff4fbf",
+    size: Math.max(1, Math.min(MAX_BRUSH_SIZE, Number(stroke.size) || 6)),
+    tool: stroke.tool === "eraser" ? "eraser" : "pen",
+    points: Array.isArray(stroke.points) ? stroke.points.slice(0, MAX_REPLAY_POINTS_PER_STROKE) : [],
+    name: stroke.name || "Guest",
+    createdAt: stroke.createdAt || createdAt,
+  }));
   const archive = {
     id: `${room.slug}-${formatArchiveDate(createdAt)}`,
     roomSlug: room.slug,
@@ -293,7 +323,10 @@ function archiveRoom(room, reason) {
     snapshotUrl: room.snapshotUrl,
     title: `${room.name} · Round ${room.roundNumber}`,
     reason,
+    participants: participantNames,
+    replayStrokes,
   };
+  archive.featuredScore = computeFeaturedScore(archive);
   archives.unshift(archive);
   archives = archives.slice(0, MAX_ARCHIVES);
   room.archivedCount += 1;
@@ -313,7 +346,7 @@ function resetRoom(room, reason = "timer") {
   io.to(room.slug).emit("room:cleared", { room: serializeRoom(room), archive: archive ? serializeArchive(archive) : null });
   broadcastRoomState(room);
   broadcastLobby();
-  if (archive) broadcastArchives();
+  if (archive) { broadcastArchives(); broadcastFeatured(); }
 }
 
 function leaveExistingRoom(socket) {
@@ -353,10 +386,14 @@ app.get("/api/canvases/archives", (_req, res) => {
   res.json({ ok: true, archives: recentArchives(12) });
 });
 
+app.get("/api/canvases/featured", (_req, res) => {
+  res.json({ ok: true, featured: featuredArchives(18) });
+});
+
 app.get("/api/canvases/archive/:id", (req, res) => {
   const archive = archives.find((item) => item.id === req.params.id);
   if (!archive) return res.status(404).json({ ok: false, error: "Archive not found" });
-  return res.json({ ok: true, archive: serializeArchive(archive) });
+  return res.json({ ok: true, archive: serializeArchive(archive), replayStrokes: archive.replayStrokes || [] });
 });
 
 app.get("/api/canvases/room/:slug", (req, res) => {
@@ -385,37 +422,132 @@ app.get("/archive/:id", (req, res) => {
     return;
   }
 
+  const replayJson = escapeXml(JSON.stringify(archive.replayStrokes || []));
+  const participantMarkup = (archive.participants || []).map((name) => `<span class="chip">${escapeXml(name)}</span>`).join("");
   const html = `<!DOCTYPE html>
   <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${escapeXml(archive.title)} | ChromeThemer Canvases</title>
-    <meta name="description" content="Archived collaborative canvas from ${escapeXml(archive.roomName)} with ${archive.strokeCount} strokes and ${archive.participantCount} contributors." />
+    <meta name="description" content="Archived collaborative canvas from ${escapeXml(archive.roomName)} with ${archive.strokeCount} strokes, ${archive.participantCount} contributors, and replay controls." />
     <style>
-      body{margin:0;font-family:Inter,Arial,sans-serif;background:#101221;color:#f5f7ff;padding:32px}
-      .wrap{max-width:1080px;margin:0 auto}
-      .card{background:#181b31;border:1px solid rgba(255,255,255,.08);border-radius:24px;padding:24px;box-shadow:0 20px 48px rgba(0,0,0,.28)}
-      img{max-width:100%;display:block;border-radius:20px;border:1px solid rgba(255,255,255,.08)}
-      .meta{display:flex;gap:12px;flex-wrap:wrap;margin:16px 0 20px}
-      .chip{padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:#b9bfdc}
+      :root{--bg:#101221;--panel:#181b31;--panel2:#1f2442;--text:#f5f7ff;--muted:#b9bfdc;--border:rgba(255,255,255,.08);--pink:#ff4fbf;--purple:#8a5cff;}
+      body{margin:0;font-family:Inter,Arial,sans-serif;background:linear-gradient(180deg,#0f1220,#13172a);color:var(--text);padding:24px}
+      .wrap{max-width:1180px;margin:0 auto}
+      .card{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--border);border-radius:24px;padding:24px;box-shadow:0 20px 48px rgba(0,0,0,.28)}
+      .head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap;margin-bottom:18px}
+      .meta,.controls,.participants{display:flex;gap:12px;flex-wrap:wrap;margin:16px 0 20px}
+      .chip,.btn{padding:10px 14px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:var(--muted);text-decoration:none;font-weight:700}
+      .btn.primary{background:linear-gradient(135deg,var(--pink),var(--purple));color:#fff;border:none}
+      .grid{display:grid;grid-template-columns:1.1fr .9fr;gap:22px}
+      img,canvas{max-width:100%;display:block;border-radius:20px;border:1px solid rgba(255,255,255,.08)}
+      canvas{background:linear-gradient(180deg,#1a1d36,#15182b)}
+      .stack{display:grid;gap:16px}
+      .small{color:var(--muted);line-height:1.7}
+      .slider{width:100%}
+      .topnav{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}
       a{color:#fff}
+      @media (max-width:900px){.grid{grid-template-columns:1fr}}
     </style>
   </head>
   <body>
     <div class="wrap">
-      <p><a href="/">← Back to live canvases</a></p>
+      <div class="topnav">
+        <a class="btn" href="/">← Back to live canvases</a>
+        <a class="btn" href="/featured">View featured drawings</a>
+      </div>
       <div class="card">
-        <h1>${escapeXml(archive.title)}</h1>
+        <div class="head">
+          <div>
+            <h1>${escapeXml(archive.title)}</h1>
+            <p class="small">Archived collaborative round from <strong>${escapeXml(archive.roomName)}</strong> with replay controls, participant highlights, and round metadata.</p>
+          </div>
+          <a class="btn primary" href="#replay">Replay this drawing</a>
+        </div>
         <div class="meta">
           <span class="chip">Created ${escapeXml(new Date(archive.createdAt).toUTCString())}</span>
           <span class="chip">${archive.participantCount} contributors</span>
           <span class="chip">${archive.countryCount} countries</span>
           <span class="chip">${archive.strokeCount} strokes</span>
+          <span class="chip">Peak ${archive.peakDrawers} active drawers</span>
         </div>
-        <img src="${archive.snapshotUrl}" alt="${escapeXml(archive.title)} preview" />
-        <p>This archived round from ChromeThemer Canvases captured a collaborative drawing session in <strong>${escapeXml(archive.roomName)}</strong>. It reached <strong>${archive.peakDrawers}</strong> peak active drawers and finished as round <strong>${archive.roundNumber}</strong>.</p>
+        <div class="grid">
+          <div class="stack">
+            <img src="${archive.snapshotUrl}" alt="${escapeXml(archive.title)} preview" />
+            <p class="small">This saved round can be indexed as a standalone content page. Over time, these archive pages can grow into a large set of crawlable collaborative-art URLs for ChromeThemer.</p>
+          </div>
+          <div class="stack" id="replay">
+            <canvas id="replayCanvas" width="1200" height="760"></canvas>
+            <div class="controls">
+              <button class="btn primary" id="playBtn">Play replay</button>
+              <button class="btn" id="pauseBtn">Pause</button>
+              <button class="btn" id="resetBtn">Reset</button>
+              <span class="chip" id="progressText">0 / ${archive.replayStrokes ? archive.replayStrokes.length : 0} strokes</span>
+            </div>
+            <input class="slider" id="progressRange" type="range" min="0" max="${archive.replayStrokes ? archive.replayStrokes.length : 0}" value="0" />
+            <div class="participants">${participantMarkup || '<span class="chip">Guest contributors</span>'}</div>
+          </div>
+        </div>
       </div>
+    </div>
+    <script>
+      const strokes = JSON.parse(document.getElementById('replayData').textContent);
+      const canvas = document.getElementById('replayCanvas');
+      const ctx = canvas.getContext('2d');
+      const playBtn = document.getElementById('playBtn');
+      const pauseBtn = document.getElementById('pauseBtn');
+      const resetBtn = document.getElementById('resetBtn');
+      const progressText = document.getElementById('progressText');
+      const progressRange = document.getElementById('progressRange');
+      let index = 0; let timer = null;
+      function clearBoard(){ctx.clearRect(0,0,canvas.width,canvas.height);}
+      function drawStroke(stroke){if(!stroke||!Array.isArray(stroke.points)||!stroke.points.length)return;ctx.save();ctx.lineJoin='round';ctx.lineCap='round';ctx.lineWidth=stroke.size||6;if(stroke.tool==='eraser'){ctx.globalCompositeOperation='destination-out';ctx.strokeStyle='rgba(0,0,0,1)';}else{ctx.globalCompositeOperation='source-over';ctx.strokeStyle=stroke.color||'#ff4fbf';}ctx.beginPath();ctx.moveTo(stroke.points[0].x,stroke.points[0].y);for(let i=1;i<stroke.points.length;i+=1){ctx.lineTo(stroke.points[i].x,stroke.points[i].y);}ctx.stroke();ctx.restore();}
+      function redrawTo(target){clearBoard();for(let i=0;i<target;i+=1){drawStroke(strokes[i]);}index=target;progressRange.value=String(index);progressText.textContent=index + ' / ' + strokes.length + ' strokes'; }
+      function play(){ if(timer) return; timer=setInterval(()=>{ if(index>=strokes.length){ pause(); return; } drawStroke(strokes[index]); index += 1; progressRange.value=String(index); progressText.textContent=index + ' / ' + strokes.length + ' strokes'; }, 90); }
+      function pause(){ if(timer){ clearInterval(timer); timer=null; } }
+      playBtn.addEventListener('click', play);
+      pauseBtn.addEventListener('click', pause);
+      resetBtn.addEventListener('click', ()=>{ pause(); redrawTo(0); });
+      progressRange.addEventListener('input', (e)=>{ pause(); redrawTo(Number(e.target.value)||0); });
+      redrawTo(0);
+    </script>
+    <script id="replayData" type="application/json">${replayJson}</script>
+  </body>
+  </html>`;
+  res.send(html);
+});
+
+app.get("/featured", (_req, res) => {
+  const featured = featuredArchives(24);
+  const cards = featured.map((archive) => `
+    <article class="card item">
+      <img src="${archive.snapshotUrl}" alt="${escapeXml(archive.title)} preview" />
+      <div class="body">
+        <h2><a href="${archive.url}">${escapeXml(archive.title)}</a></h2>
+        <p>${archive.participantCount} contributors · ${archive.countryCount} countries · ${archive.strokeCount} strokes</p>
+        <div class="chips">
+          <span class="chip">Score ${Math.round(archive.featuredScore || 0)}</span>
+          <span class="chip">Peak ${archive.peakDrawers}</span>
+          <a class="chip link" href="${archive.replayUrl}">Replay</a>
+        </div>
+      </div>
+    </article>`).join("");
+  const html = `<!DOCTYPE html>
+  <html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Featured Drawings | ChromeThemer Canvases</title>
+    <meta name="description" content="Featured collaborative drawings and replayable archive rounds from ChromeThemer Canvases." />
+    <style>body{margin:0;font-family:Inter,Arial,sans-serif;background:linear-gradient(180deg,#0f1220,#13172a);color:#f5f7ff;padding:24px}.wrap{max-width:1240px;margin:0 auto}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.card{background:linear-gradient(180deg,#1f2442,#181b31);border:1px solid rgba(255,255,255,.08);border-radius:24px;overflow:hidden;box-shadow:0 18px 48px rgba(0,0,0,.24)}img{width:100%;display:block}.body{padding:18px}.chips{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}.chip{padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:#b9bfdc;text-decoration:none}a{color:#fff}.nav{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}.btn{padding:10px 14px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:#fff;text-decoration:none;font-weight:700}@media (max-width:980px){.grid{grid-template-columns:1fr 1fr}}@media (max-width:640px){.grid{grid-template-columns:1fr}}</style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="nav"><a class="btn" href="/">← Back to live canvases</a></div>
+      <h1>Featured Drawings</h1>
+      <p>These are the strongest collaborative rounds so far, ranked by participation, activity, stroke density, and country mix. They are ideal for linking from a public ChromeThemer landing page.</p>
+      <div class="grid">${cards || '<p>No featured drawings yet.</p>'}</div>
     </div>
   </body>
   </html>`;
@@ -425,6 +557,7 @@ app.get("/archive/:id", (req, res) => {
 io.on("connection", (socket) => {
   socket.emit("lobby:update", getLobbyRooms());
   socket.emit("archives:update", recentArchives());
+  socket.emit("featured:update", featuredArchives());
 
   socket.on("room:join", (payload = {}) => {
     const slug = typeof payload.slug === "string" ? payload.slug : "friday-graffiti";

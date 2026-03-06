@@ -19,7 +19,7 @@
       </div>
       <div class="ct-actions">
         <a class="ct-btn" href="#rooms">Browse rooms</a>
-        <a class="ct-btn" href="#archive">Archive idea</a>
+        <a class="ct-btn" href="/featured">Featured drawings</a>
         <button class="ct-btn ct-btn--primary" id="scrollToWorkspaceBtn" type="button">Go to workspace</button>
       </div>
     </header>
@@ -29,7 +29,7 @@
         <div class="ct-kicker">● Phase 3 build · live previews, archives, rounds, and protection</div>
         <h1>Draw with other visitors on shared live canvases.</h1>
         <p>
-          This build adds real room preview snapshots, archive generation, timed rounds, and basic abuse protection while keeping the fast ChromeThemer-style lobby and workspace experience.
+          This build adds real room preview snapshots, replayable archive generation, timed rounds, featured drawings, and basic abuse protection while keeping the fast ChromeThemer-style lobby and workspace experience.
         </p>
         <div class="ct-statrow">
           <div class="ct-stat">
@@ -195,8 +195,19 @@
       <div class="ct-archive-grid" id="archiveGrid"></div>
     </section>
 
+    <section id="featured" class="ct-section">
+      <div class="ct-section__head">
+        <div>
+          <h2>Featured drawings</h2>
+          <p>These standout archived rounds can be linked from ChromeThemer and replayed as self-contained collaborative art pages.</p>
+        </div>
+        <div class="ct-status" id="featuredCountChip">0 featured drawings</div>
+      </div>
+      <div class="ct-archive-grid" id="featuredGrid"></div>
+    </section>
+
     <footer class="ct-footer">
-      This build now includes live preview snapshots, timed room rounds, crawlable archive pages, and basic anti-abuse protection. Next we can turn the main ChromeThemer landing page into the public gateway.
+      This build now includes live preview snapshots, replayable archive pages, timed room rounds, featured drawings, and basic anti-abuse protection. Next we can turn the main ChromeThemer landing page into the public gateway.
     </footer>
   </div>
 

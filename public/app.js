@@ -4,6 +4,7 @@
   const state = {
     rooms: [],
     archives: [],
+    featured: [],
     selectedRoomSlug: "friday-graffiti",
     joinedRoomSlug: null,
     self: null,
@@ -32,6 +33,8 @@
   const voteClearBtn = document.getElementById("voteClearBtn");
   const userList = document.getElementById("userList");
   const archiveCountChip = document.getElementById("archiveCountChip");
+  const featuredGrid = document.getElementById("featuredGrid");
+  const featuredCountChip = document.getElementById("featuredCountChip");
 
   const overlayRoom = document.getElementById("overlayRoom");
   const overlayDrawing = document.getElementById("overlayDrawing");
@@ -163,13 +166,14 @@
     `;
   }
 
-  function archiveCardHtml(archive) {
+  function archiveCardHtml(archive, featured = false) {
     return `
-      <article class="ct-panel ct-archive">
+      <article class="ct-panel ct-archive${featured ? ' ct-archive--featured' : ''}">
         <div class="ct-preview"><img src="${archive.snapshotUrl}" alt="${escapeHtml(archive.title)} preview" /></div>
         <div class="ct-archive__body">
           <h3><a href="${archive.url}" target="_blank" rel="noopener">${escapeHtml(archive.title)}</a></h3>
           <p>${archive.participantCount} contributors · ${archive.countryCount} countries · ${archive.strokeCount} strokes · ${formatTimeAgo(archive.createdAt)}</p>
+          <p class="ct-archive__links"><a href="${archive.replayUrl || archive.url}" target="_blank" rel="noopener">Replay drawing</a>${featured ? ` · <span>Score ${Math.round(archive.featuredScore || 0)}</span>` : ''}</p>
         </div>
       </article>
     `;
@@ -181,7 +185,16 @@
       archiveGrid.innerHTML = '<article class="ct-panel ct-archive"><div class="ct-preview"><div class="ct-preview__placeholder">No finished rounds yet</div></div><div class="ct-archive__body"><h3>Archives appear when rounds finish</h3><p>As soon as a room ends, the final canvas snapshot becomes a crawlable archive page.</p></div></article>';
       return;
     }
-    archiveGrid.innerHTML = state.archives.map(archiveCardHtml).join("");
+    archiveGrid.innerHTML = state.archives.map((archive) => archiveCardHtml(archive)).join("");
+  }
+
+  function renderFeatured() {
+    featuredCountChip.textContent = `${state.featured.length} featured drawings`;
+    if (!state.featured.length) {
+      featuredGrid.innerHTML = '<article class="ct-panel ct-archive"><div class="ct-preview"><div class="ct-preview__placeholder">No featured drawings yet</div></div><div class="ct-archive__body"><h3>Featured drawings appear as archives build up</h3><p>Once enough rounds have been saved, the highest-scoring ones will appear here for replay and sharing.</p></div></article>';
+      return;
+    }
+    featuredGrid.innerHTML = state.featured.map((archive) => archiveCardHtml(archive, true)).join("");
   }
 
   function renderLobby() {
@@ -338,6 +351,11 @@
     renderArchives();
   });
 
+  socket.on("featured:update", (featured) => {
+    state.featured = Array.isArray(featured) ? featured : [];
+    renderFeatured();
+  });
+
   socket.on("room:joined", ({ room, strokes, users, self }) => {
     state.joinedRoomSlug = room.slug;
     state.selectedRoomSlug = room.slug;
@@ -388,6 +406,7 @@
       state.archives = state.archives.slice(0, 12);
       renderArchives();
       showNotice(`${room.name} moved to archive. Round ${room.roundNumber - 1} saved.`, "success");
+      fetch('/api/canvases/featured').then((res) => res.json()).then((data) => { state.featured = Array.isArray(data.featured) ? data.featured : []; renderFeatured(); }).catch(() => {});
     }
   });
 
@@ -454,4 +473,6 @@
   resizeCanvasForDisplay();
   syncBoardHint();
   renderArchives();
+  renderFeatured();
+  fetch('/api/canvases/featured').then((res) => res.json()).then((data) => { state.featured = Array.isArray(data.featured) ? data.featured : []; renderFeatured(); }).catch(() => {});
 })();

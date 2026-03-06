@@ -72,3 +72,10 @@ After you test this locally, the next step would be to create:
 - room snapshots
 - final round archive generation
 - moderation and abuse controls
+
+
+## New in this build
+- Replayable archive pages
+- Featured drawings page at /featured
+- Richer archive cards with replay links
+- Live room previews remain generated from real canvas state
