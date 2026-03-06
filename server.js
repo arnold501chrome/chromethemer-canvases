@@ -850,12 +850,16 @@ app.get("/archives", (_req, res) => {
   res.send(html);
 });
 
-app.get("/sitemap.xml", (_req, res) => {
-  const staticUrls = [
-    "/",
-    "/archives",
-    "/featured",
-  ];
+const staticUrls = [
+  "/",
+  "/archives",
+  "/featured",
+  "/gallery",
+  "/gallery/graffiti",
+  "/gallery/abstract",
+  "/gallery/pixel",
+  "/gallery/world"
+];
   const entries = [
     ...staticUrls.map((url) => ({ loc: `https://canvases.chromethemer.com${url}`, lastmod: nowIso(), imageLoc: null })),
     ...archives.map((archive) => ({
@@ -880,6 +884,163 @@ ${entries.map((entry) => `  <url>
 </urlset>`;
   res.type("application/xml").send(xml);
 });
+
+
+
+
+
+// Add this to server.js
+
+function galleryBuckets() {
+  const all = archives.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const bySlug = {
+    graffiti: all.filter((a) => ["friday-graffiti", "neon-scribble-wall", "midnight-mural"].includes(a.roomSlug)),
+    abstract: all.filter((a) => ["color-storm", "geometry-jam"].includes(a.roomSlug)),
+    pixel: all.filter((a) => ["pixel-party", "block-party-board"].includes(a.roomSlug)),
+    world: all.filter((a) => ["world-doodle-board"].includes(a.roomSlug)),
+  };
+
+  return { all, bySlug };
+}
+
+function renderGalleryPage(title, description, items, canonicalPath) {
+  const cards = items.map((archive) => `
+    <article class="gallery-card">
+      <a class="gallery-card__media" href="${archive.url}">
+        <img
+          src="${archive.imageUrl || archive.snapshotUrl}"
+          alt="${escapeXml(archive.imageAlt || archive.title)}"
+          loading="lazy"
+          width="800"
+          height="453"
+        />
+      </a>
+      <div class="gallery-card__body">
+        <h2 class="gallery-card__title"><a href="${archive.url}">${escapeXml(archive.title)}</a></h2>
+        <p class="gallery-card__meta">${archive.participantCount} contributors · ${archive.countryCount} countries · ${archive.strokeCount} strokes</p>
+        <div class="gallery-card__chips">
+          <a class="gallery-chip gallery-chip--link" href="${archive.replayUrl}">Replay</a>
+          <span class="gallery-chip">Round ${archive.roundNumber}</span>
+          <span class="gallery-chip">Peak ${archive.peakDrawers}</span>
+        </div>
+      </div>
+    </article>
+  `).join("");
+
+  return `<!DOCTYPE html>
+  <html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeXml(title)} | ChromeThemer Canvases</title>
+    <meta name="description" content="${escapeXml(description)}" />
+    <link rel="canonical" href="https://canvases.chromethemer.com${canonicalPath}" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="${escapeXml(title)} | ChromeThemer Canvases" />
+    <meta property="og:description" content="${escapeXml(description)}" />
+    <meta property="og:url" content="https://canvases.chromethemer.com${canonicalPath}" />
+    <style>
+      :root{--bg:#0f1220;--panel:#181b31;--panel2:#1f2442;--text:#f5f7ff;--muted:#b9bfdc;--border:rgba(255,255,255,.08);--pink:#ff4fbf;--purple:#8a5cff}
+      *{box-sizing:border-box} body{margin:0;font-family:Inter,Arial,sans-serif;background:linear-gradient(180deg,#0f1220,#13172a);color:var(--text);padding:24px}
+      .wrap{max-width:1280px;margin:0 auto}
+      .nav{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+      .btn{padding:10px 14px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:#fff;text-decoration:none;font-weight:700}
+      .hero{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--border);border-radius:28px;padding:26px;box-shadow:0 18px 48px rgba(0,0,0,.24);margin-bottom:22px}
+      .hero p{color:var(--muted);max-width:78ch;line-height:1.7}
+      .gallery-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,360px));gap:22px;justify-content:start}
+      .gallery-card{max-width:360px;width:100%;background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--border);border-radius:24px;overflow:hidden;box-shadow:0 18px 48px rgba(0,0,0,.22)}
+      .gallery-card__media img{width:100%;display:block;aspect-ratio:16/9;object-fit:cover}
+      .gallery-card__body{padding:18px}
+      .gallery-card__title{margin:0 0 10px;font-size:1.06rem;line-height:1.35}
+      .gallery-card__title a{color:#fff;text-decoration:none}
+      .gallery-card__meta{margin:0 0 14px;color:var(--muted);line-height:1.6}
+      .gallery-card__chips{display:flex;gap:10px;flex-wrap:wrap}
+      .gallery-chip{padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:var(--muted);text-decoration:none;font-weight:700}
+      .gallery-chip--link{color:#fff}
+    </style>
+    <script type="application/ld+json">${JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'CollectionPage',
+      name: title,
+      description,
+      url: `https://canvases.chromethemer.com${canonicalPath}`
+    })}</script>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="nav">
+        <a class="btn" href="/">← Back to live canvases</a>
+        <a class="btn" href="/archives">Archive index</a>
+        <a class="btn" href="/featured">Featured drawings</a>
+      </div>
+      <section class="hero">
+        <h1>${escapeXml(title)}</h1>
+        <p>${escapeXml(description)}</p>
+      </section>
+      <section class="gallery-grid">
+        ${cards || '<p>No gallery items yet.</p>'}
+      </section>
+    </div>
+  </body>
+  </html>`;
+}
+
+app.get('/gallery', (_req, res) => {
+  const { all } = galleryBuckets();
+  res.send(renderGalleryPage(
+    'Collaborative Drawing Gallery',
+    'Browse collaborative canvas images, archive replays, and visual community drawings generated inside ChromeThemer Canvases. This gallery page is built to support image discovery and long-tail traffic.',
+    all.slice(0, 60).map(serializeArchive),
+    '/gallery'
+  ));
+});
+
+app.get('/gallery/:slug', (req, res) => {
+  const { bySlug } = galleryBuckets();
+  const config = {
+    graffiti: {
+      title: 'Online Graffiti Wall Gallery',
+      description: 'Explore graffiti-style collaborative drawings, layered browser wall art, and public digital graffiti boards created inside ChromeThemer Canvases.'
+    },
+    abstract: {
+      title: 'Abstract Collaborative Drawing Gallery',
+      description: 'Browse abstract collaborative canvases, color-heavy room archives, and geometric shared drawings from live browser sessions.'
+    },
+    pixel: {
+      title: 'Pixel and Block Drawing Gallery',
+      description: 'Discover pixel-inspired collaborative drawings, block party canvases, and retro-style browser artwork saved from live rounds.'
+    },
+    world: {
+      title: 'Global Shared Canvas Gallery',
+      description: 'See collaborative world doodle boards and shared browser drawings created by contributors across different rooms and sessions.'
+    }
+  };
+
+  const slug = req.params.slug;
+  const bucket = bySlug[slug];
+  const bucketConfig = config[slug];
+  if (!bucket || !bucketConfig) {
+    res.status(404).send('Gallery not found');
+    return;
+  }
+
+  res.send(renderGalleryPage(
+    bucketConfig.title,
+    bucketConfig.description,
+    bucket.slice(0, 60).map(serializeArchive),
+    `/gallery/${slug}`
+  ));
+});
+
+// Update the sitemap route's static URLs list to include:
+// "/gallery",
+// "/gallery/graffiti",
+// "/gallery/abstract",
+// "/gallery/pixel",
+// "/gallery/world",
+
+
 
 app.get("*", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
