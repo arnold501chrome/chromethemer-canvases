@@ -28,14 +28,18 @@ const STROKE_WINDOW_MS = 10000;
 const MIN_STROKE_INTERVAL_MS = 90;
 const MAX_POINTS_PER_STROKE = 140;
 const MAX_BRUSH_SIZE = 18;
-const ARCHIVE_STORE_PATH = path.join(__dirname, "data", "archives.json");
-const GENERATED_DIR = path.join(__dirname, "public", "generated");
+const STORAGE_ROOT = process.env.STORAGE_DIR || __dirname;
+
+const ARCHIVE_STORE_PATH = path.join(STORAGE_ROOT, "data", "archives.json");
+const GENERATED_DIR = path.join(STORAGE_ROOT, "generated");
 const GENERATED_ARCHIVES_DIR = path.join(GENERATED_DIR, "archives");
 const GENERATED_ROOMS_DIR = path.join(GENERATED_DIR, "rooms");
-const GENERATED_IMAGES_DIR = path.join(__dirname, "public", "images");
+const GENERATED_IMAGES_DIR = path.join(STORAGE_ROOT, "images");
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static(path.join(__dirname, "public")));
+app.use("/generated", express.static(path.join(STORAGE_ROOT, "generated")));
+app.use("/images", express.static(path.join(STORAGE_ROOT, "images")));
 
 function ensureDataDir() {
   fs.mkdirSync(path.dirname(ARCHIVE_STORE_PATH), { recursive: true });
