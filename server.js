@@ -889,8 +889,7 @@ ${entries.map((entry) => `  <url>
       <image:title>${escapeXml(entry.imageTitle || "Collaborative canvas image")}</image:title>
       <image:caption>${escapeXml(entry.imageCaption || entry.imageTitle || "Collaborative canvas image")}</image:caption>
     </image:image>` : ""}
-  </url>`).join("
-")}
+  </url>`).join("\n")}
 </urlset>`;
 
   res.type("application/xml").send(xml);
