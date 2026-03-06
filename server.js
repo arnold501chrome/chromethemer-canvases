@@ -32,6 +32,7 @@ const ARCHIVE_STORE_PATH = path.join(__dirname, "data", "archives.json");
 const GENERATED_DIR = path.join(__dirname, "public", "generated");
 const GENERATED_ARCHIVES_DIR = path.join(GENERATED_DIR, "archives");
 const GENERATED_ROOMS_DIR = path.join(GENERATED_DIR, "rooms");
+const GENERATED_IMAGES_DIR = path.join(__dirname, "public", "images");
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -40,6 +41,7 @@ function ensureDataDir() {
   fs.mkdirSync(path.dirname(ARCHIVE_STORE_PATH), { recursive: true });
   fs.mkdirSync(GENERATED_ARCHIVES_DIR, { recursive: true });
   fs.mkdirSync(GENERATED_ROOMS_DIR, { recursive: true });
+  fs.mkdirSync(GENERATED_IMAGES_DIR, { recursive: true });
 }
 
 function randomBetween(min, max) {
@@ -71,6 +73,48 @@ function formatArchiveDate(isoString) {
   const date = new Date(isoString);
   return date.toISOString().slice(0, 19).replace(/[:T]/g, "-");
 }
+function slugify(value) {
+  return String(value || "canvas")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "canvas";
+}
+
+function pickArchiveDescriptor(room, strokeCount, participantCount) {
+  const descriptors = {
+    "friday-graffiti": ["Graffiti", "Street Art", "Urban Canvas"],
+    "neon-scribble-wall": ["Neon", "Electric", "Luminous"],
+    "color-storm": ["Color Storm", "Vivid", "Chromatic"],
+    "world-doodle-board": ["Global", "World", "Shared"],
+    "geometry-jam": ["Geometric", "Shape", "Abstract"],
+    "block-party-board": ["Block Party", "Chunky", "Playful"],
+    "pixel-party": ["Pixel", "Retro", "Arcade"],
+    "midnight-mural": ["Midnight", "Night", "Nocturne"],
+  };
+  const pool = descriptors[room.slug] || [room.name, "Collaborative", "Shared"];
+  const intensity = (strokeCount > 180 ? 2 : strokeCount > 90 ? 1 : 0);
+  const social = participantCount > 8 ? "Collaborative" : participantCount > 4 ? "Shared" : "Live";
+  return `${pool[intensity % pool.length]} ${social}`;
+}
+
+function buildArchiveTitle(room, archiveId, roundNumber, strokeCount, participantCount) {
+  const descriptor = pickArchiveDescriptor(room, strokeCount, participantCount);
+  return `${descriptor} Canvas from ${room.name} Round ${roundNumber}`;
+}
+
+function buildArchiveImageAlt(title, participantCount, roomName) {
+  return `${title} created on ${roomName} by ${participantCount} participants`;
+}
+
+function archiveImagePublicPath(archiveId, title) {
+  return `/images/${archiveId}-${slugify(title)}.svg`;
+}
+
+function archiveImageFilePath(archiveId, title) {
+  return path.join(GENERATED_IMAGES_DIR, `${archiveId}-${slugify(title)}.svg`);
+}
+
 
 function sanitizeGuestName(input) {
   const fallback = makeGuestName();
@@ -222,6 +266,22 @@ function loadArchives() {
 
 let archives = loadArchives();
 
+function normalizeArchiveRecord(archive) {
+  if (!archive || typeof archive !== "object") return null;
+  const room = rooms.get(archive.roomSlug) || createRoom("fallback", archive.roomName || "Canvas Room", "Archived round", []);
+  const safeTitle = archive.title || buildArchiveTitle(room, archive.id || "canvas", archive.roundNumber || 1, archive.strokeCount || 0, archive.participantCount || 0);
+  const imageUrl = archive.imageUrl || archiveImagePublicPath(archive.id || "canvas", safeTitle);
+  const imageAlt = archive.imageAlt || buildArchiveImageAlt(safeTitle, archive.participantCount || 0, archive.roomName || room.name);
+  const imageFile = archiveImageFilePath(archive.id || "canvas", safeTitle);
+  if (!fs.existsSync(imageFile)) {
+    const legacyFile = path.join(GENERATED_ARCHIVES_DIR, `${archive.id}.svg`);
+    if (fs.existsSync(legacyFile)) fs.copyFileSync(legacyFile, imageFile);
+  }
+  return { ...archive, title: safeTitle, imageUrl, imageAlt, snapshotUrl: imageUrl };
+}
+
+archives = archives.map(normalizeArchiveRecord).filter(Boolean);
+
 function saveArchives() {
   ensureDataDir();
   fs.writeFileSync(ARCHIVE_STORE_PATH, JSON.stringify(archives.slice(0, MAX_ARCHIVES), null, 2));
@@ -262,6 +322,8 @@ function serializeArchive(archive) {
     replayUrl: `/archive/${archive.id}#replay`,
     featuredScore: archive.featuredScore || 0,
     participants: Array.isArray(archive.participants) ? archive.participants.slice(0, 12) : [],
+    imageUrl: archive.imageUrl || archive.snapshotUrl,
+    imageAlt: archive.imageAlt || `${archive.title} collaborative drawing`,
   };
 }
 
@@ -340,6 +402,9 @@ function archiveRoom(room, reason) {
     createdAt: stroke.createdAt || createdAt,
   }));
   const archiveId = `${room.slug}-${formatArchiveDate(createdAt)}`;
+  const title = buildArchiveTitle(room, archiveId, room.roundNumber, room.strokes.length, participantIds.size);
+  const imageUrl = archiveImagePublicPath(archiveId, title);
+  const imageAlt = buildArchiveImageAlt(title, participantIds.size, room.name);
   const archive = {
     id: archiveId,
     roomSlug: room.slug,
@@ -350,13 +415,17 @@ function archiveRoom(room, reason) {
     countryCount: room.countries.length,
     peakDrawers: Math.max(room.users.size, participantIds.size),
     strokeCount: room.strokes.length,
-    snapshotUrl: room.snapshotUrl,
-    title: `${room.name} · Round ${room.roundNumber}`,
+    snapshotUrl: imageUrl,
+    imageUrl,
+    imageAlt,
+    title,
     reason,
     participants: participantNames,
     replayStrokes,
   };
-  writeSvgFile(path.join(GENERATED_ARCHIVES_DIR, `${archiveId}.svg`), buildPreviewSvgMarkup(room));
+  const archiveSvg = buildPreviewSvgMarkup(room);
+  writeSvgFile(path.join(GENERATED_ARCHIVES_DIR, `${archiveId}.svg`), archiveSvg);
+  writeSvgFile(archiveImageFilePath(archiveId, title), archiveSvg);
   archive.featuredScore = computeFeaturedScore(archive);
   archives.unshift(archive);
   archives = archives.slice(0, MAX_ARCHIVES);
@@ -455,6 +524,13 @@ app.get("/archive/:id", (req, res) => {
 
   const replayJson = escapeXml(JSON.stringify(archive.replayStrokes || []));
   const participantMarkup = (archive.participants || []).map((name) => `<span class="chip">${escapeXml(name)}</span>`).join("");
+  const imageObjectJson = JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "ImageObject",
+    name: archive.title,
+    contentUrl: `https://canvases.chromethemer.com${archive.imageUrl || archive.snapshotUrl}`,
+    description: archive.imageAlt || archive.title
+  });
   const html = `<!DOCTYPE html>
   <html lang="en">
   <head>
@@ -462,6 +538,8 @@ app.get("/archive/:id", (req, res) => {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${escapeXml(archive.title)} | ChromeThemer Canvases</title>
     <meta name="description" content="Archived collaborative canvas from ${escapeXml(archive.roomName)} with ${archive.strokeCount} strokes, ${archive.participantCount} contributors, and replay controls." />
+    <meta property="og:image" content="https://canvases.chromethemer.com${archive.imageUrl || archive.snapshotUrl}" />
+    <script type="application/ld+json">${imageObjectJson}</script>
     <style>
       :root{--bg:#101221;--panel:#181b31;--panel2:#1f2442;--text:#f5f7ff;--muted:#b9bfdc;--border:rgba(255,255,255,.08);--pink:#ff4fbf;--purple:#8a5cff;}
       body{margin:0;font-family:Inter,Arial,sans-serif;background:linear-gradient(180deg,#0f1220,#13172a);color:var(--text);padding:24px}
@@ -505,7 +583,7 @@ app.get("/archive/:id", (req, res) => {
         </div>
         <div class="grid">
           <div class="stack">
-            <img src="${archive.snapshotUrl}" alt="${escapeXml(archive.title)} preview" />
+            <img src="${archive.imageUrl || archive.snapshotUrl}" alt="${escapeXml(archive.imageAlt || `${archive.title} preview`)}" width="800" height="453" />
             <p class="small">This saved round can be indexed as a standalone content page. Over time, these archive pages can grow into a large set of crawlable collaborative-art URLs for ChromeThemer.</p>
           </div>
           <div class="stack" id="replay">
@@ -553,7 +631,7 @@ app.get("/featured", (_req, res) => {
   const featured = featuredArchives(24);
   const cards = featured.map((archive) => `
     <article class="card item">
-      <img src="${archive.snapshotUrl}" alt="${escapeXml(archive.title)} preview" />
+      <img src="${archive.imageUrl || archive.snapshotUrl}" alt="${escapeXml(archive.imageAlt || `${archive.title} preview`)}" width="800" height="453" />
       <div class="body">
         <h2><a href="${archive.url}">${escapeXml(archive.title)}</a></h2>
         <p>${archive.participantCount} contributors · ${archive.countryCount} countries · ${archive.strokeCount} strokes</p>
@@ -721,7 +799,7 @@ setInterval(() => {
 app.get("/archives", (_req, res) => {
   const items = recentArchives(120).map((archive) => `
     <article class="card item">
-      <img src="${archive.snapshotUrl}" alt="${escapeXml(archive.title)} preview" />
+      <img src="${archive.imageUrl || archive.snapshotUrl}" alt="${escapeXml(archive.imageAlt || `${archive.title} preview`)}" width="800" height="453" />
       <div class="body">
         <h2><a href="${archive.url}">${escapeXml(archive.title)}</a></h2>
         <p>${archive.participantCount} contributors · ${archive.countryCount} countries · ${archive.strokeCount} strokes · ${escapeXml(new Date(archive.createdAt).toUTCString())}</p>
@@ -760,14 +838,25 @@ app.get("/sitemap.xml", (_req, res) => {
     "/featured",
   ];
   const entries = [
-    ...staticUrls.map((url) => ({ loc: `https://canvases.chromethemer.com${url}`, lastmod: nowIso() })),
-    ...archives.map((archive) => ({ loc: `https://canvases.chromethemer.com/archive/${archive.id}`, lastmod: archive.createdAt })),
+    ...staticUrls.map((url) => ({ loc: `https://canvases.chromethemer.com${url}`, lastmod: nowIso(), imageLoc: null })),
+    ...archives.map((archive) => ({
+      loc: `https://canvases.chromethemer.com/archive/${archive.id}`,
+      lastmod: archive.createdAt,
+      imageLoc: archive.imageUrl ? `https://canvases.chromethemer.com${archive.imageUrl}` : null,
+      imageTitle: archive.title,
+      imageCaption: archive.imageAlt || archive.title,
+    })),
   ];
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
 ${entries.map((entry) => `  <url>
     <loc>${escapeXml(entry.loc)}</loc>
-    <lastmod>${escapeXml(entry.lastmod)}</lastmod>
+    <lastmod>${escapeXml(entry.lastmod)}</lastmod>${entry.imageLoc ? `
+    <image:image>
+      <image:loc>${escapeXml(entry.imageLoc)}</image:loc>
+      <image:title>${escapeXml(entry.imageTitle || "Collaborative canvas image")}</image:title>
+      <image:caption>${escapeXml(entry.imageCaption || entry.imageTitle || "Collaborative canvas image")}</image:caption>
+    </image:image>` : ""}
   </url>`).join("\n")}
 </urlset>`;
   res.type("application/xml").send(xml);
