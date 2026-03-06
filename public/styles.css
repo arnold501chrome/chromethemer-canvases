@@ -72,7 +72,24 @@ img { max-width: 100%; display: block; }
 .ct-status.is-danger { color:#ffd8d8; border-color:rgba(255,107,107,.36); background:rgba(255,107,107,.12); }
 .heroPresence, #heroPresence.is-success { color:#d8ffe9; }
 .ct-section__head--compact { margin-top:-6px; margin-bottom:16px; }
-.ct-archive-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.ct-archive-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 380px));
+  gap: 22px;
+  justify-content: start;
+}
+.ct-archive {
+  max-width: 380px;
+  width: 100%;
+  border-radius: 22px;
+  overflow: hidden;
+}
+
+.ct-archive__media img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+}
 .ct-archive__body a:hover { text-decoration:underline; }
 
 .ct-room-grid { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:18px; }
