@@ -1,10 +1,9 @@
 (() => {
-  const socket = io({
-  transports: ["polling"]
-});
+  const socket = io({ transports: ["polling"] });
 
   const state = {
     rooms: [],
+    archives: [],
     selectedRoomSlug: "friday-graffiti",
     joinedRoomSlug: null,
     self: null,
@@ -14,9 +13,11 @@
     isDrawing: false,
     currentPoints: [],
     clearVotes: { votes: 0, needed: 0 },
+    noticeTimeout: null,
   };
 
   const roomGrid = document.getElementById("roomGrid");
+  const archiveGrid = document.getElementById("archiveGrid");
   const heroRooms = document.getElementById("heroRooms");
   const heroCap = document.getElementById("heroCap");
   const heroPresence = document.getElementById("heroPresence");
@@ -30,10 +31,12 @@
   const boardHint = document.getElementById("boardHint");
   const voteClearBtn = document.getElementById("voteClearBtn");
   const userList = document.getElementById("userList");
+  const archiveCountChip = document.getElementById("archiveCountChip");
 
   const overlayRoom = document.getElementById("overlayRoom");
   const overlayDrawing = document.getElementById("overlayDrawing");
   const overlayEnds = document.getElementById("overlayEnds");
+  const overlayRound = document.getElementById("overlayRound");
   const sidebarRoomTitle = document.getElementById("sidebarRoomTitle");
   const sidebarDescription = document.getElementById("sidebarDescription");
   const sidebarDrawing = document.getElementById("sidebarDrawing");
@@ -44,6 +47,7 @@
   const sidebarCap = document.getElementById("sidebarCap");
   const sidebarArchiveCount = document.getElementById("sidebarArchiveCount");
   const clearVotesInfo = document.getElementById("clearVotesInfo");
+  const roundInfo = document.getElementById("roundInfo");
 
   const baseCanvas = document.getElementById("baseLayer");
   const drawCanvas = document.getElementById("drawLayer");
@@ -85,11 +89,23 @@
     return state.rooms.find((room) => room.slug === state.selectedRoomSlug) || state.rooms[0] || null;
   }
 
+  function showNotice(message, tone = "default") {
+    joinStatus.textContent = message;
+    joinStatus.classList.remove("is-success", "is-danger");
+    if (tone === "success") joinStatus.classList.add("is-success");
+    if (tone === "danger") joinStatus.classList.add("is-danger");
+    if (state.noticeTimeout) window.clearTimeout(state.noticeTimeout);
+    state.noticeTimeout = window.setTimeout(() => {
+      joinStatus.classList.remove("is-success", "is-danger");
+    }, 2200);
+  }
+
   function updateSidebarFromRoom(room) {
     if (!room) return;
     overlayRoom.textContent = `Room: ${room.name}`;
     overlayDrawing.textContent = `${room.activeDrawers} drawing right now`;
     overlayEnds.textContent = `Round ends in ${formatTimeLeft(room.roundEndsAt)}`;
+    overlayRound.textContent = `Round ${room.roundNumber}`;
     sidebarRoomTitle.textContent = room.name;
     sidebarDescription.textContent = room.theme;
     sidebarDrawing.textContent = `${room.activeDrawers} drawing`;
@@ -99,6 +115,7 @@
     sidebarCountryList.textContent = `Countries visible: ${room.countries.join(", ")}`;
     sidebarCap.textContent = `Room cap: ${room.maxUsers} active drawers`;
     sidebarArchiveCount.textContent = `Archived rounds: ${room.archivedCount}`;
+    roundInfo.textContent = `Current round: ${room.roundNumber} · Ends in ${formatTimeLeft(room.roundEndsAt)}`;
     heroPreviewImage.src = room.snapshotUrl;
     heroPreviewBadge.textContent = `Live preview · ${room.name}`;
   }
@@ -117,12 +134,13 @@
 
   function roomCardHtml(room) {
     const isSelected = room.slug === state.selectedRoomSlug ? " is-selected" : "";
+    const isJoined = room.slug === state.joinedRoomSlug ? " Joined" : "";
     return `
       <article class="ct-panel ct-room${isSelected}" data-slug="${room.slug}">
         <div class="ct-room__media">
           <div class="ct-room__topline">
             <span class="ct-live">Live now</span>
-            <span class="ct-pill">Updated ${escapeHtml(formatTimeAgo(room.updatedAt))}</span>
+            <span class="ct-pill">Round ${room.roundNumber}</span>
           </div>
           <div class="ct-preview">
             <img src="${room.snapshotUrl}" alt="${escapeHtml(room.name)} preview" />
@@ -133,16 +151,37 @@
           <div class="ct-room__meta">
             <span>${room.activeDrawers} drawing</span>
             <span>${room.watchers} watching</span>
-            <span>${escapeHtml(room.countries.slice(0, 4).join(", "))}</span>
+            <span>Ends in ${formatTimeLeft(room.roundEndsAt)}</span>
           </div>
           <p>${escapeHtml(room.theme)}</p>
           <div class="ct-room__foot">
             <div class="ct-avatars"><span>🎨</span><span>🌍</span><span>✨</span><span>🖍️</span></div>
-            <button class="ct-btn ct-btn--primary" type="button">Join canvas</button>
+            <button class="ct-btn ct-btn--primary" type="button">Join canvas${isJoined}</button>
           </div>
         </div>
       </article>
     `;
+  }
+
+  function archiveCardHtml(archive) {
+    return `
+      <article class="ct-panel ct-archive">
+        <div class="ct-preview"><img src="${archive.snapshotUrl}" alt="${escapeHtml(archive.title)} preview" /></div>
+        <div class="ct-archive__body">
+          <h3><a href="${archive.url}" target="_blank" rel="noopener">${escapeHtml(archive.title)}</a></h3>
+          <p>${archive.participantCount} contributors · ${archive.countryCount} countries · ${archive.strokeCount} strokes · ${formatTimeAgo(archive.createdAt)}</p>
+        </div>
+      </article>
+    `;
+  }
+
+  function renderArchives() {
+    archiveCountChip.textContent = `${state.archives.length} recent archives`;
+    if (!state.archives.length) {
+      archiveGrid.innerHTML = '<article class="ct-panel ct-archive"><div class="ct-preview"><div class="ct-preview__placeholder">No finished rounds yet</div></div><div class="ct-archive__body"><h3>Archives appear when rounds finish</h3><p>As soon as a room ends, the final canvas snapshot becomes a crawlable archive page.</p></div></article>';
+      return;
+    }
+    archiveGrid.innerHTML = state.archives.map(archiveCardHtml).join("");
   }
 
   function renderLobby() {
@@ -167,13 +206,8 @@
     drawCanvas.height = 760;
   }
 
-  function clearBaseCanvas() {
-    baseCtx.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
-  }
-
-  function clearDrawCanvas() {
-    drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
-  }
+  function clearBaseCanvas() { baseCtx.clearRect(0, 0, baseCanvas.width, baseCanvas.height); }
+  function clearDrawCanvas() { drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height); }
 
   function drawStroke(ctx, stroke) {
     if (!stroke || !Array.isArray(stroke.points) || !stroke.points.length) return;
@@ -190,9 +224,7 @@
     }
     ctx.beginPath();
     ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
-    for (let i = 1; i < stroke.points.length; i += 1) {
-      ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
-    }
+    for (let i = 1; i < stroke.points.length; i += 1) ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
     ctx.stroke();
     ctx.restore();
   }
@@ -206,10 +238,7 @@
     const rect = drawCanvas.getBoundingClientRect();
     const scaleX = drawCanvas.width / rect.width;
     const scaleY = drawCanvas.height / rect.height;
-    return {
-      x: (event.clientX - rect.left) * scaleX,
-      y: (event.clientY - rect.top) * scaleY,
-    };
+    return { x: (event.clientX - rect.left) * scaleX, y: (event.clientY - rect.top) * scaleY };
   }
 
   function canDraw() {
@@ -218,13 +247,13 @@
 
   function syncBoardHint() {
     if (!boardHint) return;
+    const room = selectedRoom();
     if (canDraw()) {
       boardHint.classList.add("is-hidden");
       return;
     }
-    const room = selectedRoom();
     if (state.self && state.self.mode === "viewer" && state.joinedRoomSlug === state.selectedRoomSlug) {
-      boardHint.innerHTML = `You joined <strong>${room ? room.name : "this room"}</strong> as a viewer. Switch to drawer mode in Quick guest access if you want to draw.`;
+      boardHint.innerHTML = `You joined <strong>${room ? room.name : "this room"}</strong> as a viewer. Switch to drawer mode if you want to draw.`;
     } else {
       boardHint.innerHTML = `Click <strong>Join canvas</strong> on any room card to enter <strong>${room ? room.name : "a room"}</strong> and start drawing instantly.`;
     }
@@ -278,38 +307,35 @@
     const room = state.rooms.find((item) => item.slug === slugOverride) || selectedRoom();
     if (!room) return;
     state.selectedRoomSlug = room.slug;
-    if (!guestNameInput.value.trim()) {
-      guestNameInput.value = `Guest-${Math.floor(1000 + Math.random() * 9000)}`;
-    }
-    socket.emit("room:join", {
-      slug: room.slug,
-      name: guestNameInput.value.trim(),
-      mode: joinModeSelect.value,
-    });
+    if (!guestNameInput.value.trim()) guestNameInput.value = `Guest-${Math.floor(1000 + Math.random() * 9000)}`;
+    socket.emit("room:join", { slug: room.slug, name: guestNameInput.value.trim(), mode: joinModeSelect.value });
     renderLobby();
     updateSidebarFromRoom(room);
     syncBoardHint();
-    if (shouldScroll) {
-      document.getElementById("workspace").scrollIntoView({ behavior: "smooth", block: "start" });
-    }
+    if (shouldScroll) document.getElementById("workspace").scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   socket.on("connect", () => {
     heroPresence.textContent = "Connected";
+    heroPresence.classList.add("is-success");
   });
 
   socket.on("disconnect", () => {
     heroPresence.textContent = "Disconnected";
-    joinStatus.textContent = "Connection lost";
+    heroPresence.classList.remove("is-success");
+    showNotice("Connection lost", "danger");
     syncBoardHint();
   });
 
   socket.on("lobby:update", (rooms) => {
     state.rooms = Array.isArray(rooms) ? rooms : [];
-    if (!state.rooms.find((room) => room.slug === state.selectedRoomSlug) && state.rooms[0]) {
-      state.selectedRoomSlug = state.rooms[0].slug;
-    }
+    if (!state.rooms.find((room) => room.slug === state.selectedRoomSlug) && state.rooms[0]) state.selectedRoomSlug = state.rooms[0].slug;
     renderLobby();
+  });
+
+  socket.on("archives:update", (archives) => {
+    state.archives = Array.isArray(archives) ? archives : [];
+    renderArchives();
   });
 
   socket.on("room:joined", ({ room, strokes, users, self }) => {
@@ -319,7 +345,7 @@
     renderLobby();
     redrawHistory(strokes);
     renderUserList(users || []);
-    joinStatus.textContent = `Joined ${room.name} as ${self.mode}`;
+    showNotice(`Joined ${room.name} as ${self.mode}`, "success");
     syncBoardHint();
   });
 
@@ -350,13 +376,19 @@
     drawStroke(baseCtx, stroke);
   });
 
-  socket.on("room:cleared", ({ room }) => {
+  socket.on("room:cleared", ({ room, archive }) => {
     clearBaseCanvas();
     clearDrawCanvas();
     const idx = state.rooms.findIndex((item) => item.slug === room.slug);
     if (idx >= 0) state.rooms[idx] = room;
     renderLobby();
     if (room.slug === state.selectedRoomSlug) updateSidebarFromRoom(room);
+    if (archive) {
+      state.archives.unshift(archive);
+      state.archives = state.archives.slice(0, 12);
+      renderArchives();
+      showNotice(`${room.name} moved to archive. Round ${room.roundNumber - 1} saved.`, "success");
+    }
   });
 
   socket.on("room:clear-votes", ({ votes, needed }) => {
@@ -365,16 +397,16 @@
   });
 
   socket.on("room:full", ({ message }) => {
-    joinStatus.textContent = message;
+    showNotice(message, "danger");
     syncBoardHint();
   });
 
   socket.on("room:error", ({ message }) => {
-    joinStatus.textContent = message;
+    showNotice(message, "danger");
     syncBoardHint();
   });
 
-  joinRoomBtn.addEventListener("click", joinSelectedRoom);
+  joinRoomBtn.addEventListener("click", () => joinSelectedRoom());
   scrollToWorkspaceBtn.addEventListener("click", () => {
     document.getElementById("workspace").scrollIntoView({ behavior: "smooth", block: "start" });
   });
@@ -410,14 +442,16 @@
   drawCanvas.addEventListener("pointerleave", endStroke);
   drawCanvas.addEventListener("pointercancel", endStroke);
 
-  setInterval(() => {
+  window.setInterval(() => {
     const room = selectedRoom();
     if (room) {
       overlayEnds.textContent = `Round ends in ${formatTimeLeft(room.roundEndsAt)}`;
       sidebarUpdated.textContent = formatTimeAgo(room.updatedAt);
+      roundInfo.textContent = `Current round: ${room.roundNumber} · Ends in ${formatTimeLeft(room.roundEndsAt)}`;
     }
   }, 1000);
 
   resizeCanvasForDisplay();
   syncBoardHint();
+  renderArchives();
 })();

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ChromeThemer Canvases — Live Collaborative Rooms</title>
-  <meta name="description" content="Live collaborative drawing rooms for ChromeThemer with colorful public canvases, guest users, and a right sidebar ad area." />
+  <meta name="description" content="Live collaborative drawing rooms for ChromeThemer with live room previews, round archives, anti-abuse protection, and colorful guest canvases." />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -26,11 +26,10 @@
 
     <section class="ct-hero">
       <div class="ct-panel ct-hero__main">
-        <div class="ct-kicker">● Phase 2 test build · real-time room sync prototype</div>
+        <div class="ct-kicker">● Phase 3 build · live previews, archives, rounds, and protection</div>
         <h1>Draw with other visitors on shared live canvases.</h1>
         <p>
-          This test build gives you a real lobby, room switching, guest access, shared strokes, presence updates,
-          viewer mode, drawer mode, round resets, and a desktop-friendly sidebar ad area.
+          This build adds real room preview snapshots, archive generation, timed rounds, and basic abuse protection while keeping the fast ChromeThemer-style lobby and workspace experience.
         </p>
         <div class="ct-statrow">
           <div class="ct-stat">
@@ -75,7 +74,7 @@
               <option value="viewer">Viewer</option>
             </select>
           </div>
-          <button class="ct-btn ct-btn--primary ct-btn--full" id="joinRoomBtn" type="button">Go to workspace</button>
+          <button class="ct-btn ct-btn--primary ct-btn--full" id="joinRoomBtn" type="button">Join selected room</button>
         </div>
       </aside>
     </section>
@@ -84,7 +83,7 @@
       <div class="ct-section__head">
         <div>
           <h2>Browse live canvas rooms</h2>
-          <p>Click any room card to join instantly as a drawer. The cards below update from the live server state.</p>
+          <p>Each room now shows a live-generated snapshot from the actual canvas state, round timing, and current activity. Click a room card to join instantly.</p>
         </div>
       </div>
       <div class="ct-room-grid" id="roomGrid"></div>
@@ -94,7 +93,7 @@
       <div class="ct-section__head">
         <div>
           <h2>Featured room</h2>
-          <p>The left column is the live canvas. The right column shows room info, status, users, and an ad-safe area.</p>
+          <p>The left column is the live canvas. The right column now also tracks rounds, archives, live drawer counts, and the basic safety protections keeping rooms usable.</p>
         </div>
         <div class="ct-status" id="joinStatus">Not joined yet</div>
       </div>
@@ -125,6 +124,7 @@
             <div class="ct-board__overlay">
               <span id="overlayRoom">Room: Friday Graffiti</span>
               <span id="overlayDrawing">0 drawing right now</span>
+              <span id="overlayRound">Round 1</span>
               <span id="overlayEnds">Round ends in --:--</span>
             </div>
           </div>
@@ -161,6 +161,7 @@
               <li id="sidebarCap">Room cap: 50 active drawers</li>
               <li id="sidebarArchiveCount">Archived rounds: --</li>
               <li id="clearVotesInfo">Clear votes: 0 / 0</li>
+              <li id="roundInfo">Current round: 1 · Ends in --:--</li>
             </ul>
           </div>
 
@@ -184,30 +185,18 @@
     <section id="archive" class="ct-section">
       <div class="ct-section__head">
         <div>
-          <h2>Archive direction</h2>
-          <p>When a round ends, the final image and stats could be saved into archive pages and internal galleries.</p>
+          <h2>Recent archived rounds</h2>
+          <p>When a room ends, the finished canvas is saved into a crawlable archive page with participants, countries, and round metadata. This section updates automatically.</p>
         </div>
       </div>
-      <div class="ct-archive-grid">
-        <article class="ct-panel ct-archive">
-          <div class="ct-preview"><div class="ct-preview__placeholder">Round archive card idea</div></div>
-          <div class="ct-archive__body">
-            <h3>Friday Graffiti · Example archive</h3>
-            <p>Peak drawers, countries, finished artwork, and a crawlable archive URL.</p>
-          </div>
-        </article>
-        <article class="ct-panel ct-archive">
-          <div class="ct-preview"><div class="ct-preview__placeholder">Country gallery idea</div></div>
-          <div class="ct-archive__body">
-            <h3>World Doodle Board · Example archive</h3>
-            <p>Could later support featured boards, daily highlights, and themed galleries.</p>
-          </div>
-        </article>
+      <div class="ct-section__head ct-section__head--compact">
+        <div class="ct-status" id="archiveCountChip">0 recent archives</div>
       </div>
+      <div class="ct-archive-grid" id="archiveGrid"></div>
     </section>
 
     <footer class="ct-footer">
-      This build is meant for testing. It gives you a working real-time prototype that can later be expanded with moderation, snapshots, room creation, and archives.
+      This build now includes live preview snapshots, timed room rounds, crawlable archive pages, and basic anti-abuse protection. Next we can turn the main ChromeThemer landing page into the public gateway.
     </footer>
   </div>
 
