@@ -554,7 +554,7 @@ app.get("/archive/:id", (req, res) => {
     return;
   }
 
-  const replayJson = escapeXml(JSON.stringify(archive.replayStrokes || []));
+  const replayJson = JSON.stringify(archive.replayStrokes || []).replace(/<\/script/gi, '<\\/script');
   const participantMarkup = (archive.participants || []).map((name) => `<span class="chip">${escapeXml(name)}</span>`).join("");
   const imageObjectJson = JSON.stringify({
     "@context": "https://schema.org",
@@ -621,9 +621,9 @@ app.get("/archive/:id", (req, res) => {
           <div class="stack" id="replay">
             <canvas id="replayCanvas" width="1200" height="760"></canvas>
             <div class="controls">
-              <button class="btn primary" id="playBtn">Play replay</button>
-              <button class="btn" id="pauseBtn">Pause</button>
-              <button class="btn" id="resetBtn">Reset</button>
+              <button class="btn primary" id="playBtn" type="button">Play replay</button>
+              <button class="btn" id="pauseBtn" type="button">Pause</button>
+              <button class="btn" id="resetBtn" type="button">Reset</button>
               <span class="chip" id="progressText">0 / ${archive.replayStrokes ? archive.replayStrokes.length : 0} strokes</span>
             </div>
             <input class="slider" id="progressRange" type="range" min="0" max="${archive.replayStrokes ? archive.replayStrokes.length : 0}" value="0" />
@@ -632,29 +632,10 @@ app.get("/archive/:id", (req, res) => {
         </div>
       </div>
     </div>
-    <script id="replayData" type="application/json">${replayJson}</script>
     <script>
-      const replayNode = document.getElementById('replayData');
-      const strokes = replayNode ? JSON.parse(replayNode.textContent) : [];
-      const canvas = document.getElementById('replayCanvas');
-      const ctx = canvas.getContext('2d');
-      const playBtn = document.getElementById('playBtn');
-      const pauseBtn = document.getElementById('pauseBtn');
-      const resetBtn = document.getElementById('resetBtn');
-      const progressText = document.getElementById('progressText');
-      const progressRange = document.getElementById('progressRange');
-      let index = 0; let timer = null;
-      function clearBoard(){ctx.clearRect(0,0,canvas.width,canvas.height);}
-      function drawStroke(stroke){if(!stroke||!Array.isArray(stroke.points)||!stroke.points.length)return;ctx.save();ctx.lineJoin='round';ctx.lineCap='round';ctx.lineWidth=stroke.size||6;if(stroke.tool==='eraser'){ctx.globalCompositeOperation='destination-out';ctx.strokeStyle='rgba(0,0,0,1)';}else{ctx.globalCompositeOperation='source-over';ctx.strokeStyle=stroke.color||'#ff4fbf';}ctx.beginPath();ctx.moveTo(stroke.points[0].x,stroke.points[0].y);for(let i=1;i<stroke.points.length;i+=1){ctx.lineTo(stroke.points[i].x,stroke.points[i].y);}ctx.stroke();ctx.restore();}
-      function redrawTo(target){clearBoard();for(let i=0;i<target;i+=1){drawStroke(strokes[i]);}index=target;progressRange.value=String(index);progressText.textContent=index + ' / ' + strokes.length + ' strokes'; }
-      function play(){ if(timer) return; timer=setInterval(()=>{ if(index>=strokes.length){ pause(); return; } drawStroke(strokes[index]); index += 1; progressRange.value=String(index); progressText.textContent=index + ' / ' + strokes.length + ' strokes'; }, 90); }
-      function pause(){ if(timer){ clearInterval(timer); timer=null; } }
-      playBtn.addEventListener('click', play);
-      pauseBtn.addEventListener('click', pause);
-      resetBtn.addEventListener('click', ()=>{ pause(); redrawTo(0); });
-      progressRange.addEventListener('input', (e)=>{ pause(); redrawTo(Number(e.target.value)||0); });
-      redrawTo(0);
+      window.__ARCHIVE_REPLAY__ = ${replayJson};
     </script>
+    <script src="/archive-replay.js"></script>
   </body>
   </html>`;
   res.send(html);
