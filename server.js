@@ -1284,19 +1284,72 @@ function renderDrawingTopicPage(topicKey) {
   </html>`;
 }
 
+function roomSeoProfile(room) {
+  const slug = String(room.slug || 'canvas-room');
+  const name = room.name || 'Canvas Room';
+  const theme = (room.theme || 'collaborative drawing').toLowerCase();
+  const text = `${slug} ${name} ${theme}`.toLowerCase();
+  const topicMatches = [];
+  if (/graffiti|scribble|mural/.test(text)) topicMatches.push('graffiti-wall');
+  if (/abstract|storm|geometry|shape|neon/.test(text)) topicMatches.push('abstract-art');
+  if (/browser|world|board|canvas/.test(text)) topicMatches.push('browser-canvas-art');
+  if (/doodle|party|board|pixel/.test(text)) topicMatches.push('collaborative-doodle');
+  const primaryTopic = topicMatches[0] || 'browser-canvas-art';
+  const primaryTopicCfg = drawingTopicConfig()[primaryTopic] || drawingTopicConfig()['browser-canvas-art'];
+  const keywordLabel = primaryTopicCfg ? primaryTopicCfg.title : 'Browser canvas art';
+  const intro = `${name} is a standalone collaborative canvas page built to surface live browser drawing previews, room-specific archive snapshots, and long-tail image search intent around ${theme}. This page groups the current room image with recent saved rounds so visitors and search engines can understand the style, subject, and activity around this canvas.`;
+  const caption = `${name} live collaborative browser drawing canvas preview showing ${theme} with shared strokes, layered marks, and a public room snapshot.`;
+  const archiveIntro = `Recent drawings from ${name} help turn this room into a stronger standalone indexable page by pairing the live preview with archived collaborative images and descriptive captions.`;
+  return { primaryTopic, keywordLabel, intro, caption, archiveIntro };
+}
+
+function pickRelatedRooms(room, limit = 3) {
+  const profile = roomSeoProfile(room);
+  return Array.from(rooms.values())
+    .filter((candidate) => candidate.slug !== room.slug)
+    .map((candidate) => {
+      const other = roomSeoProfile(candidate);
+      let score = 0;
+      if (other.primaryTopic === profile.primaryTopic) score += 4;
+      const roomTheme = (room.theme || '').toLowerCase();
+      const candidateTheme = (candidate.theme || '').toLowerCase();
+      if (roomTheme && candidateTheme && roomTheme.split(/[^a-z0-9]+/).some((token) => token && candidateTheme.includes(token))) score += 2;
+      if ((candidate.slug || '').includes('board') && (room.slug || '').includes('board')) score += 1;
+      if ((candidate.slug || '').includes('graffiti') && (room.slug || '').includes('graffiti')) score += 2;
+      return { room: candidate, score };
+    })
+    .sort((a, b) => b.score - a.score || a.room.name.localeCompare(b.room.name))
+    .slice(0, limit)
+    .map((item) => item.room);
+}
+
 function renderRoomSeoPage(room) {
   const recent = archives.filter((item) => item.roomSlug === room.slug).slice(0, 12).map(serializeArchive);
   const roomUrl = `https://canvases.chromethemer.com/rooms/${room.slug}`;
+  const profile = roomSeoProfile(room);
+  const topicCfg = drawingTopicConfig()[profile.primaryTopic];
   const pageTitle = `${room.name} Live Collaborative Canvas`;
-  const description = `${room.name} is a live collaborative browser canvas on ChromeThemer. Browse the room preview, recent archives, and join the shared drawing experience.`;
+  const description = `${room.name} is a live collaborative browser canvas on ChromeThemer. Browse the room preview, recent archives, related rooms, and shared drawing activity around ${profile.keywordLabel.toLowerCase()}.`;
   const cards = recent.map((archive) => `
-    <article class="archive-card">
+    <figure class="archive-card">
       <a class="archive-card__media" href="${archive.url}"><img src="${archive.imageUrl || archive.snapshotUrl}" alt="${escapeXml(archive.imageAlt || archive.title)}" loading="lazy" width="800" height="453" /></a>
-      <div class="archive-card__body">
+      <figcaption class="archive-card__body">
         <h2><a href="${archive.url}">${escapeXml(archive.title)}</a></h2>
-        <p>${archive.participantCount} contributors · ${archive.countryCount} countries · ${archive.strokeCount} strokes</p>
+        <p>${escapeXml(archive.title)} is a saved collaborative drawing from ${escapeXml(room.name)} with ${archive.participantCount} contributors, ${archive.countryCount} countries, and ${archive.strokeCount} strokes.</p>
+        <div class="archive-meta">${archive.participantCount} contributors · ${archive.countryCount} countries · ${archive.strokeCount} strokes</div>
+      </figcaption>
+    </figure>`).join('');
+  const relatedRooms = pickRelatedRooms(room).map((candidate) => {
+    const candidateProfile = roomSeoProfile(candidate);
+    return `<article class="related-card">
+      <a class="related-card__media" href="/rooms/${candidate.slug}"><img src="${roomPreviewPublicPath(candidate)}" alt="${escapeXml(candidate.name)} collaborative browser drawing preview" loading="lazy" width="800" height="453" /></a>
+      <div class="related-card__body">
+        <h3><a href="/rooms/${candidate.slug}">${escapeXml(candidate.name)}</a></h3>
+        <p>${escapeXml(candidate.name)} is another live room focused on ${escapeXml(candidate.theme.toLowerCase())} and related to ${escapeXml(profile.keywordLabel.toLowerCase())}.</p>
+        <div class="archive-meta"><a href="/rooms/${candidate.slug}">Open room page</a> · <a href="/drawing/${candidateProfile.primaryTopic}">View topic page</a></div>
       </div>
-    </article>`).join('');
+    </article>`;
+  }).join('');
   return `<!DOCTYPE html>
   <html lang="en">
   <head>
@@ -1310,37 +1363,47 @@ function renderRoomSeoPage(room) {
     <meta property="og:description" content="${escapeXml(description)}" />
     <meta property="og:url" content="${roomUrl}" />
     <meta property="og:image" content="https://canvases.chromethemer.com${roomPreviewPublicPath(room)}" />
-    <style>:root{--bg:#0f1220;--panel:#181b31;--panel2:#1f2442;--text:#f5f7ff;--muted:#b9bfdc;--border:rgba(255,255,255,.08)}*{box-sizing:border-box}body{margin:0;font-family:Inter,Arial,sans-serif;background:linear-gradient(180deg,#0f1220,#13172a);color:var(--text);padding:24px}.wrap{max-width:1220px;margin:0 auto}.nav{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}.btn{padding:10px 14px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:#fff;text-decoration:none;font-weight:700}.hero,.panel,.archive-card{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--border);border-radius:24px;box-shadow:0 18px 48px rgba(0,0,0,.24)}.hero{padding:26px;margin-bottom:22px}.hero p,.panel p,.archive-card p{color:var(--muted);line-height:1.75}.grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(280px,.85fr);gap:22px}.preview{overflow:hidden}.preview img{width:100%;display:block;aspect-ratio:16/9;object-fit:cover;background:#171c32}.preview__body,.panel,.archive-card__body{padding:18px}.archive-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,360px));gap:20px;margin-top:22px}.archive-card{overflow:hidden}.archive-card__media img{width:100%;display:block;aspect-ratio:16/9;object-fit:cover}.archive-card__body h2{margin:0 0 10px;font-size:1.05rem}.archive-card__body a{color:#fff;text-decoration:none}.chips{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}.chips span{padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:var(--muted)}@media (max-width:900px){.grid{grid-template-columns:1fr}}</style>
-    ${renderStructuredDataScripts(roomUrl, pageTitle, description, [{ imageUrl: roomPreviewPublicPath(room), title: pageTitle, caption: description, href: `/rooms/${room.slug}` }, ...recent])}
+    <style>:root{--bg:#0f1220;--panel:#181b31;--panel2:#1f2442;--text:#f5f7ff;--muted:#b9bfdc;--border:rgba(255,255,255,.08)}*{box-sizing:border-box}body{margin:0;font-family:Inter,Arial,sans-serif;background:linear-gradient(180deg,#0f1220,#13172a);color:var(--text);padding:24px}.wrap{max-width:1220px;margin:0 auto}.nav{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}.btn,.chip{padding:10px 14px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:#fff;text-decoration:none;font-weight:700}.hero,.panel,.archive-card,.related-card{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--border);border-radius:24px;box-shadow:0 18px 48px rgba(0,0,0,.24)}.hero{padding:26px;margin-bottom:22px}.hero p,.panel p,.archive-card p,.related-card p{color:var(--muted);line-height:1.75}.grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(280px,.85fr);gap:22px}.preview{overflow:hidden}.preview img,.related-card__media img{width:100%;display:block;aspect-ratio:16/9;object-fit:cover;background:#171c32}.preview__body,.panel,.archive-card__body,.related-card__body{padding:18px}.archive-grid,.related-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,360px));gap:20px;margin-top:22px}.archive-card,.related-card{overflow:hidden;margin:0}.archive-card__media img{width:100%;display:block;aspect-ratio:16/9;object-fit:cover}.archive-card__body h2,.related-card__body h3{margin:0 0 10px;font-size:1.05rem}.archive-card__body a,.related-card__body a{color:#fff;text-decoration:none}.chips{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}.chips span,.chip{padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:var(--muted)}.section-title{margin:28px 0 10px}.archive-meta{color:var(--muted);line-height:1.7}.copy{margin-top:22px}.copy p{color:var(--muted);line-height:1.75}.list{margin:12px 0 0;padding-left:18px;color:var(--muted)}@media (max-width:900px){.grid{grid-template-columns:1fr}}</style>
+    ${renderStructuredDataScripts(roomUrl, pageTitle, description, [{ imageUrl: roomPreviewPublicPath(room), title: pageTitle, caption: profile.caption, href: `/rooms/${room.slug}` }, ...recent])}
   </head>
   <body>
     <div class="wrap">
-      <div class="nav"><a class="btn" href="/">← Back to live canvases</a><a class="btn" href="/drawing">Drawing topics</a><a class="btn" href="/archives">Archive index</a></div>
+      <div class="nav"><a class="btn" href="/">← Back to live canvases</a><a class="btn" href="/drawing">Drawing topics</a><a class="btn" href="/drawing/${profile.primaryTopic}">${escapeXml(topicCfg ? topicCfg.title : 'Related drawing topic')}</a><a class="btn" href="/archives">Archive index</a></div>
       <section class="hero">
         <h1>${escapeXml(room.name)}</h1>
-        <p>${escapeXml(description)}</p>
-        <div class="chips"><span>${escapeXml(room.theme)}</span><span>${room.users.size} drawing now</span><span>${room.viewers.size} viewers</span><span>${room.archivedCount} archived rounds</span></div>
+        <p>${escapeXml(profile.intro)}</p>
+        <div class="chips"><span>${escapeXml(room.theme)}</span><span>${room.users.size} drawing now</span><span>${room.viewers.size} viewers</span><span>${room.archivedCount} archived rounds</span><span>${escapeXml(profile.keywordLabel)}</span></div>
       </section>
       <section class="grid">
         <article class="preview panel">
-          <img src="${roomPreviewPublicPath(room)}" alt="${escapeXml(room.name)} collaborative browser drawing canvas preview" width="1200" height="760" />
+          <img src="${roomPreviewPublicPath(room)}" alt="${escapeXml(profile.caption)}" width="1200" height="760" />
           <div class="preview__body">
             <h2>Live room preview</h2>
-            <p>${escapeXml(room.name)} focuses on ${escapeXml(room.theme.toLowerCase())}. The preview image updates from the current room state and gives search engines an indexable image tied directly to this room.</p>
+            <p>${escapeXml(profile.caption)}</p>
+            <p>This preview image updates from the current room state and gives search engines an indexable canvas image tied directly to ${escapeXml(room.name)}.</p>
           </div>
         </article>
         <aside class="panel">
           <h2>Room details</h2>
-          <p>This room is part of the ChromeThemer Canvases network of collaborative browser drawing boards.</p>
-          <ul>
+          <p>This room is part of the ChromeThemer Canvases network of collaborative browser drawing boards and is closely related to <a class="chip" href="/drawing/${profile.primaryTopic}">${escapeXml(topicCfg ? topicCfg.title : profile.keywordLabel)}</a>.</p>
+          <ul class="list">
             <li>Countries shown: ${escapeXml((room.countries || []).join(', ') || 'Global mix')}</li>
             <li>Current round: ${room.roundNumber}</li>
             <li>Last updated: ${escapeXml(new Date(room.updatedAt || room.createdAt).toUTCString())}</li>
+            <li>SEO focus: ${escapeXml(profile.keywordLabel)}</li>
           </ul>
           <p><a class="btn" href="/">Open the live canvases homepage</a></p>
         </aside>
       </section>
+      <section class="copy">
+        <h2 class="section-title">Why this room page is stronger for search</h2>
+        <p>${escapeXml(profile.archiveIntro)}</p>
+        <p>Each room page now combines a keyword-aware intro, a large preview image, room-specific archive cards, and internal links to related topic pages and nearby rooms. That expands the number of useful entry points without changing the live app itself.</p>
+      </section>
+      <h2 class="section-title">Recent archived drawings from ${escapeXml(room.name)}</h2>
       <section class="archive-grid">${cards || '<p>No archived rounds for this room yet.</p>'}</section>
+      <h2 class="section-title">Related live rooms</h2>
+      <section class="related-grid">${relatedRooms || '<p>Related room suggestions will appear as more live rooms are available.</p>'}</section>
     </div>
   </body>
   </html>`;
