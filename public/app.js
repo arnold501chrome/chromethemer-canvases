@@ -92,13 +92,6 @@
     return state.rooms.find((room) => room.slug === state.selectedRoomSlug) || state.rooms[0] || null;
   }
 
-  function bustPreviewUrl(url, stamp) {
-    if (!url) return "";
-    const base = String(url).split("?")[0];
-    const version = stamp ? new Date(stamp).getTime() : Date.now();
-    return `${base}?v=${version}`;
-  }
-
   function showNotice(message, tone = "default") {
     joinStatus.textContent = message;
     joinStatus.classList.remove("is-success", "is-danger");
@@ -126,8 +119,7 @@
     sidebarCap.textContent = `Room cap: ${room.maxUsers} active drawers`;
     sidebarArchiveCount.textContent = `Archived rounds: ${room.archivedCount}`;
     roundInfo.textContent = `Current round: ${room.roundNumber} · Ends in ${formatTimeLeft(room.roundEndsAt)}`;
-    heroPreviewImage.dataset.base = String(room.snapshotUrl || "").split("?")[0];
-    heroPreviewImage.src = bustPreviewUrl(room.snapshotUrl, room.updatedAt);
+    heroPreviewImage.src = `${room.snapshotUrl}${room.snapshotUrl.includes("?") ? "&" : "?"}ts=${Date.now()}`;
     heroPreviewBadge.textContent = `Live preview · ${room.name}`;
   }
 
@@ -154,7 +146,7 @@
             <span class="ct-pill">Round ${room.roundNumber}</span>
           </div>
           <div class="ct-preview">
-            <img data-preview-base="${String(room.snapshotUrl || "").split("?")[0]}" src="${bustPreviewUrl(room.snapshotUrl, room.updatedAt)}" alt="${escapeHtml(room.name)} preview" />
+            <img src="${room.snapshotUrl}${room.snapshotUrl.includes("?") ? "&" : "?"}ts=${Date.now()}" alt="${escapeHtml(room.name)} preview" />
           </div>
         </div>
         <div class="ct-room__body">
@@ -220,14 +212,18 @@
     syncBoardHint();
   }
 
-  function refreshVisibleRoomPreviews() {
-    document.querySelectorAll(".ct-room .ct-preview img[data-preview-base]").forEach((img) => {
-      const base = img.dataset.previewBase;
-      if (!base) return;
-      img.src = `${base}?v=${Date.now()}`;
-    });
-    if (heroPreviewImage && heroPreviewImage.dataset.base) {
-      heroPreviewImage.src = `${heroPreviewImage.dataset.base}?v=${Date.now()}`;
+  async function refreshLobbySnapshot() {
+    try {
+      const response = await fetch(`/api/canvases/lobby?t=${Date.now()}`, { cache: "no-store" });
+      const data = await response.json();
+      if (!data || !Array.isArray(data.rooms)) return;
+      state.rooms = data.rooms;
+      if (!state.rooms.find((room) => room.slug === state.selectedRoomSlug) && state.rooms[0]) {
+        state.selectedRoomSlug = state.rooms[0].slug;
+      }
+      renderLobby();
+    } catch (_error) {
+      // Ignore temporary lobby refresh errors
     }
   }
 
@@ -489,10 +485,13 @@
     }
   }, 1000);
 
+  window.setInterval(() => {
+    refreshLobbySnapshot();
+  }, 4000);
+
   resizeCanvasForDisplay();
   syncBoardHint();
   renderArchives();
   renderFeatured();
-  window.setInterval(refreshVisibleRoomPreviews, 5000);
   fetch('/api/canvases/featured').then((res) => res.json()).then((data) => { state.featured = Array.isArray(data.featured) ? data.featured : []; renderFeatured(); }).catch(() => {});
 })();
