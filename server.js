@@ -249,6 +249,23 @@ function archivePreviewPublicPath(archiveId) {
   return `/generated/archives/${archiveId}.svg`;
 }
 
+
+function roomImageLandingPath(room) {
+  return `/image/room/${room.slug}`;
+}
+
+function archiveImageLandingPath(archive) {
+  return `/image/archive/${archive.id}`;
+}
+
+function roomDirectImageAlt(room) {
+  return `${room.name} collaborative browser canvas art image`;
+}
+
+function archiveDirectImageAlt(archive) {
+  return archive.imageAlt || `${archive.title} collaborative drawing archive image`;
+}
+
 function createRoom(slug, name, theme, countries) {
   const room = {
     slug,
@@ -890,8 +907,16 @@ app.get("/sitemap-pages.xml", (_req, res) => {
       loc: `https://canvases.chromethemer.com/rooms/${room.slug}`,
       lastmod: room.updatedAt,
     })),
+    ...roomUrls.map((room) => ({
+      loc: `https://canvases.chromethemer.com/image/room/${room.slug}`,
+      lastmod: room.updatedAt,
+    })),
     ...archives.map((archive) => ({
       loc: `https://canvases.chromethemer.com/archive/${archive.id}`,
+      lastmod: archive.createdAt,
+    })),
+    ...archives.map((archive) => ({
+      loc: `https://canvases.chromethemer.com/image/archive/${archive.id}`,
       lastmod: archive.createdAt,
     }))
   ];
@@ -933,7 +958,23 @@ app.get("/sitemap-images.xml", (_req, res) => {
     imageCaption: archive.imageAlt || archive.title,
   }));
 
-  const entries = [...roomEntries, ...archiveEntries, ...topicEntries];
+  const roomImageLandingEntries = roomSeoItems().map((room) => ({
+    page: `https://canvases.chromethemer.com/image/room/${room.slug}`,
+    lastmod: room.updatedAt,
+    imageLoc: `https://canvases.chromethemer.com${room.snapshotUrl}`,
+    imageTitle: `${room.name} full browser canvas image`,
+    imageCaption: `${room.name} live collaborative canvas image file and landing page`,
+  }));
+
+  const archiveImageLandingEntries = archives.map((archive) => ({
+    page: `https://canvases.chromethemer.com/image/archive/${archive.id}`,
+    lastmod: archive.createdAt,
+    imageLoc: `https://canvases.chromethemer.com${archive.imageUrl || archive.snapshotUrl}`,
+    imageTitle: `${archive.title} full collaborative drawing image`,
+    imageCaption: `${archive.title} image landing page for Google Images discovery`,
+  }));
+
+  const entries = [...roomEntries, ...archiveEntries, ...roomImageLandingEntries, ...archiveImageLandingEntries, ...topicEntries];
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
@@ -971,10 +1012,10 @@ function galleryBuckets() {
 function renderGalleryPage(title, description, items, canonicalPath) {
   const cards = items.map((archive) => `
     <article class="gallery-card">
-      <a class="gallery-card__media" href="${archive.url}">
+      <a class="gallery-card__media" href="${archive.imageUrl || archive.snapshotUrl}" aria-label="Open full image for ${escapeXml(archive.title)}">
         <img
           src="${archive.imageUrl || archive.snapshotUrl}"
-          alt="${escapeXml(archive.imageAlt || archive.title)}"
+          alt="${escapeXml(archiveDirectImageAlt(archive))}"
           loading="lazy"
           width="800"
           height="453"
@@ -983,8 +1024,11 @@ function renderGalleryPage(title, description, items, canonicalPath) {
       <div class="gallery-card__body">
         <h2 class="gallery-card__title"><a href="${archive.url}">${escapeXml(archive.title)}</a></h2>
         <p class="gallery-card__meta">${archive.participantCount} contributors · ${archive.countryCount} countries · ${archive.strokeCount} strokes</p>
+        <p class="gallery-card__copy">${escapeXml(archive.title)} is a saved collaborative canvas from ${escapeXml(archive.roomName)} and now acts as a stronger image-first archive page with direct file access, replay access, and related room discovery.</p>
         <div class="gallery-card__chips">
           <a class="gallery-chip gallery-chip--link" href="${archive.replayUrl}">Replay</a>
+          <a class="gallery-chip gallery-chip--link" href="${archiveImageLandingPath(archive)}">Image page</a>
+          <a class="gallery-chip gallery-chip--link" href="${archive.imageUrl || archive.snapshotUrl}">Open image</a>
           <span class="gallery-chip">Round ${archive.roundNumber}</span>
           <span class="gallery-chip">Peak ${archive.peakDrawers}</span>
         </div>
@@ -1011,14 +1055,15 @@ function renderGalleryPage(title, description, items, canonicalPath) {
       .nav{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}
       .btn{padding:10px 14px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:#fff;text-decoration:none;font-weight:700}
       .hero{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--border);border-radius:28px;padding:26px;box-shadow:0 18px 48px rgba(0,0,0,.24);margin-bottom:22px}
-      .hero p{color:var(--muted);max-width:78ch;line-height:1.7}
+      .hero p,.gallery-copy p{color:var(--muted);max-width:78ch;line-height:1.7}
       .gallery-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,360px));gap:22px;justify-content:start}
       .gallery-card{max-width:360px;width:100%;background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--border);border-radius:24px;overflow:hidden;box-shadow:0 18px 48px rgba(0,0,0,.22)}
       .gallery-card__media img{width:100%;display:block;aspect-ratio:16/9;object-fit:cover}
       .gallery-card__body{padding:18px}
       .gallery-card__title{margin:0 0 10px;font-size:1.06rem;line-height:1.35}
       .gallery-card__title a{color:#fff;text-decoration:none}
-      .gallery-card__meta{margin:0 0 14px;color:var(--muted);line-height:1.6}
+      .gallery-card__meta{margin:0 0 12px;color:var(--muted);line-height:1.6}
+      .gallery-card__copy{margin:0 0 14px;color:var(--muted);line-height:1.7}
       .gallery-card__chips{display:flex;gap:10px;flex-wrap:wrap}
       .gallery-chip{padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:var(--muted);text-decoration:none;font-weight:700}
       .gallery-chip--link{color:#fff}
@@ -1041,6 +1086,10 @@ function renderGalleryPage(title, description, items, canonicalPath) {
       <section class="hero">
         <h1>${escapeXml(title)}</h1>
         <p>${escapeXml(description)}</p>
+        <p>These archive galleries now do more than list saved rounds. Each card exposes a direct image file, a dedicated image landing page, and a richer archive summary so search engines can discover the same artwork through more than one crawlable context without changing the live app.</p>
+      </section>
+      <section class="gallery-copy">
+        <p>Browse collaborative graffiti walls, abstract browser canvases, pixel boards, and global doodle rooms. Every archive card links to the archive replay, the underlying image file, and a dedicated image page built to strengthen Google Images discovery.</p>
       </section>
       <section class="gallery-grid">
         ${cards || '<p>No gallery items yet.</p>'}
@@ -1230,14 +1279,14 @@ function renderDrawingTopicPage(topicKey) {
   const pageUrl = `https://canvases.chromethemer.com/drawing/${topicKey}`;
   const cards = items.map((item) => `
     <figure class="drawing-card">
-      <a class="drawing-card__media" href="${item.href}">
+      <a class="drawing-card__media" href="${item.imageUrl}" aria-label="Open full image for ${escapeXml(item.title)}">
         <img src="${item.imageUrl}" alt="${escapeXml(item.alt)}" loading="lazy" width="1200" height="760" />
       </a>
       <figcaption class="drawing-card__body">
         <h2><a href="${item.href}">${escapeXml(item.title)}</a></h2>
         <p>${escapeXml(item.caption)}</p>
         <div class="drawing-card__meta">${escapeXml(item.meta)}</div>
-        <div class="drawing-card__links"><a href="${item.href}">Open page</a> · <a href="${item.roomHref}">Room page</a></div>
+        <div class="drawing-card__links"><a href="${item.href}">Open page</a> · <a href="${item.roomHref}">Room page</a> · <a href="${item.type === 'archive' ? archiveImageLandingPath({ id: item.key.replace('archive:', '') }) : `/image/room/${item.roomSlug}`}">Image page</a> · <a href="${item.imageUrl}">Open image</a></div>
       </figcaption>
     </figure>`).join('');
 
@@ -1332,11 +1381,11 @@ function renderRoomSeoPage(room) {
   const description = `${room.name} is a live collaborative browser canvas on ChromeThemer. Browse the room preview, recent archives, related rooms, and shared drawing activity around ${profile.keywordLabel.toLowerCase()}.`;
   const cards = recent.map((archive) => `
     <figure class="archive-card">
-      <a class="archive-card__media" href="${archive.url}"><img src="${archive.imageUrl || archive.snapshotUrl}" alt="${escapeXml(archive.imageAlt || archive.title)}" loading="lazy" width="800" height="453" /></a>
+      <a class="archive-card__media" href="${archive.imageUrl || archive.snapshotUrl}"><img src="${archive.imageUrl || archive.snapshotUrl}" alt="${escapeXml(archive.imageAlt || archive.title)}" loading="lazy" width="800" height="453" /></a>
       <figcaption class="archive-card__body">
         <h2><a href="${archive.url}">${escapeXml(archive.title)}</a></h2>
         <p>${escapeXml(archive.title)} is a saved collaborative drawing from ${escapeXml(room.name)} with ${archive.participantCount} contributors, ${archive.countryCount} countries, and ${archive.strokeCount} strokes.</p>
-        <div class="archive-meta">${archive.participantCount} contributors · ${archive.countryCount} countries · ${archive.strokeCount} strokes</div>
+        <div class="archive-meta">${archive.participantCount} contributors · ${archive.countryCount} countries · ${archive.strokeCount} strokes · <a href="${archive.url}">Archive page</a> · <a href="${archiveImageLandingPath(archive)}">Image page</a> · <a href="${archive.imageUrl || archive.snapshotUrl}">Open image</a></div>
       </figcaption>
     </figure>`).join('');
   const relatedRooms = pickRelatedRooms(room).map((candidate) => {
@@ -1363,6 +1412,7 @@ function renderRoomSeoPage(room) {
     <meta property="og:description" content="${escapeXml(description)}" />
     <meta property="og:url" content="${roomUrl}" />
     <meta property="og:image" content="https://canvases.chromethemer.com${roomPreviewPublicPath(room)}" />
+    <link rel="image_src" href="https://canvases.chromethemer.com${roomPreviewPublicPath(room)}" />
     <style>:root{--bg:#0f1220;--panel:#181b31;--panel2:#1f2442;--text:#f5f7ff;--muted:#b9bfdc;--border:rgba(255,255,255,.08)}*{box-sizing:border-box}body{margin:0;font-family:Inter,Arial,sans-serif;background:linear-gradient(180deg,#0f1220,#13172a);color:var(--text);padding:24px}.wrap{max-width:1220px;margin:0 auto}.nav{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}.btn,.chip{padding:10px 14px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:#fff;text-decoration:none;font-weight:700}.hero,.panel,.archive-card,.related-card{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--border);border-radius:24px;box-shadow:0 18px 48px rgba(0,0,0,.24)}.hero{padding:26px;margin-bottom:22px}.hero p,.panel p,.archive-card p,.related-card p{color:var(--muted);line-height:1.75}.grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(280px,.85fr);gap:22px}.preview{overflow:hidden}.preview img,.related-card__media img{width:100%;display:block;aspect-ratio:16/9;object-fit:cover;background:#171c32}.preview__body,.panel,.archive-card__body,.related-card__body{padding:18px}.archive-grid,.related-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,360px));gap:20px;margin-top:22px}.archive-card,.related-card{overflow:hidden;margin:0}.archive-card__media img{width:100%;display:block;aspect-ratio:16/9;object-fit:cover}.archive-card__body h2,.related-card__body h3{margin:0 0 10px;font-size:1.05rem}.archive-card__body a,.related-card__body a{color:#fff;text-decoration:none}.chips{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}.chips span,.chip{padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:var(--muted)}.section-title{margin:28px 0 10px}.archive-meta{color:var(--muted);line-height:1.7}.copy{margin-top:22px}.copy p{color:var(--muted);line-height:1.75}.list{margin:12px 0 0;padding-left:18px;color:var(--muted)}@media (max-width:900px){.grid{grid-template-columns:1fr}}</style>
     ${renderStructuredDataScripts(roomUrl, pageTitle, description, [{ imageUrl: roomPreviewPublicPath(room), title: pageTitle, caption: profile.caption, href: `/rooms/${room.slug}` }, ...recent])}
   </head>
@@ -1376,11 +1426,14 @@ function renderRoomSeoPage(room) {
       </section>
       <section class="grid">
         <article class="preview panel">
-          <img src="${roomPreviewPublicPath(room)}" alt="${escapeXml(profile.caption)}" width="1200" height="760" />
+          <a href="${roomPreviewPublicPath(room)}" aria-label="Open full image for ${escapeXml(room.name)}">
+            <img src="${roomPreviewPublicPath(room)}" alt="${escapeXml(profile.caption)}" width="1200" height="760" />
+          </a>
           <div class="preview__body">
             <h2>Live room preview</h2>
             <p>${escapeXml(profile.caption)}</p>
             <p>This preview image updates from the current room state and gives search engines an indexable canvas image tied directly to ${escapeXml(room.name)}.</p>
+            <p><a class="chip" href="${roomImageLandingPath(room)}">Open image landing page</a> <a class="chip" href="${roomPreviewPublicPath(room)}">Open full image file</a></p>
           </div>
         </article>
         <aside class="panel">
@@ -1404,6 +1457,45 @@ function renderRoomSeoPage(room) {
       <section class="archive-grid">${cards || '<p>No archived rounds for this room yet.</p>'}</section>
       <h2 class="section-title">Related live rooms</h2>
       <section class="related-grid">${relatedRooms || '<p>Related room suggestions will appear as more live rooms are available.</p>'}</section>
+    </div>
+  </body>
+  </html>`;
+}
+
+
+function renderImageLandingPage({ pageTitle, description, canonicalPath, imageUrl, imageAlt, imageCaption, backHref, backLabel, relatedLinks = [] }) {
+  const pageUrl = `https://canvases.chromethemer.com${canonicalPath}`;
+  return `<!DOCTYPE html>
+  <html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeXml(pageTitle)} | ChromeThemer Canvases</title>
+    <meta name="description" content="${escapeXml(description)}" />
+    <link rel="canonical" href="${pageUrl}" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="${escapeXml(pageTitle)} | ChromeThemer Canvases" />
+    <meta property="og:description" content="${escapeXml(description)}" />
+    <meta property="og:url" content="${pageUrl}" />
+    <meta property="og:image" content="https://canvases.chromethemer.com${imageUrl}" />
+    <link rel="image_src" href="https://canvases.chromethemer.com${imageUrl}" />
+    <style>:root{--bg:#0f1220;--panel:#181b31;--panel2:#1f2442;--text:#f5f7ff;--muted:#b9bfdc;--border:rgba(255,255,255,.08)}*{box-sizing:border-box}body{margin:0;font-family:Inter,Arial,sans-serif;background:linear-gradient(180deg,#0f1220,#13172a);color:var(--text);padding:24px}.wrap{max-width:1120px;margin:0 auto}.nav,.chips{display:flex;gap:12px;flex-wrap:wrap}.nav{margin-bottom:18px}.btn,.chip{padding:10px 14px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:#fff;text-decoration:none;font-weight:700}.hero,.panel{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--border);border-radius:24px;box-shadow:0 18px 48px rgba(0,0,0,.24)}.hero,.panel{padding:24px}.hero{margin-bottom:22px}.hero p,.panel p{color:var(--muted);line-height:1.75;max-width:78ch}.image-wrap{overflow:hidden;border-radius:20px;margin-top:18px;background:#171c32}.image-wrap img{width:100%;display:block;aspect-ratio:16/9;object-fit:cover}.related{margin-top:22px}</style>
+    <script type="application/ld+json">${JSON.stringify({ '@context':'https://schema.org', '@graph':[ { '@type':'WebPage', name:pageTitle, description, url:pageUrl }, { '@type':'ImageObject', contentUrl:`https://canvases.chromethemer.com${imageUrl}`, name:pageTitle, description:imageCaption, creator:{'@type':'Organization',name:'ChromeThemer Canvases'} } ] })}</script>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="nav"><a class="btn" href="/">← Back to live canvases</a><a class="btn" href="${backHref}">${escapeXml(backLabel)}</a><a class="btn" href="${imageUrl}">Open full image file</a></div>
+      <section class="hero">
+        <h1>${escapeXml(pageTitle)}</h1>
+        <p>${escapeXml(description)}</p>
+        <p>${escapeXml(imageCaption)}</p>
+        <div class="image-wrap"><a href="${imageUrl}"><img src="${imageUrl}" alt="${escapeXml(imageAlt)}" width="1200" height="760" /></a></div>
+      </section>
+      <section class="panel">
+        <h2>Why this image page exists</h2>
+        <p>This dedicated image landing page gives the same canvas artwork another clean crawlable context. Large art sites use these image-first pages so Google Images can discover the file, the caption, and the related destination page separately without needing a brand new image.</p>
+        <div class="chips">${relatedLinks.join('')}</div>
+      </section>
     </div>
   </body>
   </html>`;
@@ -1479,6 +1571,53 @@ app.get('/rooms/:slug', (req, res) => {
     return;
   }
   res.send(renderRoomSeoPage(room));
+});
+
+app.get('/image/room/:slug', (req, res) => {
+  const room = rooms.get(req.params.slug);
+  if (!room) {
+    res.status(404).send('Image page not found');
+    return;
+  }
+  const profile = roomSeoProfile(room);
+  const topicCfg = drawingTopicConfig()[profile.primaryTopic];
+  res.send(renderImageLandingPage({
+    pageTitle: `${room.name} Canvas Image`,
+    description: `${room.name} image landing page for collaborative browser canvas discovery, Google Images indexing, and related room navigation.`,
+    canonicalPath: roomImageLandingPath(room),
+    imageUrl: roomPreviewPublicPath(room),
+    imageAlt: roomDirectImageAlt(room),
+    imageCaption: profile.caption,
+    backHref: `/rooms/${room.slug}`,
+    backLabel: `${room.name} room page`,
+    relatedLinks: [
+      `<a class="chip" href="/rooms/${room.slug}">Room page</a>`,
+      `<a class="chip" href="/drawing/${profile.primaryTopic}">${escapeXml(topicCfg ? topicCfg.title : 'Related topic')}</a>`
+    ]
+  }));
+});
+
+app.get('/image/archive/:id', (req, res) => {
+  const archive = archives.find((entry) => entry.id === req.params.id);
+  if (!archive) {
+    res.status(404).send('Image page not found');
+    return;
+  }
+  const serialized = serializeArchive(archive);
+  res.send(renderImageLandingPage({
+    pageTitle: `${archive.title} Image`,
+    description: `${archive.title} image landing page for collaborative canvas archive discovery and Google Images indexing.`,
+    canonicalPath: archiveImageLandingPath(archive),
+    imageUrl: archive.imageUrl || archive.snapshotUrl,
+    imageAlt: archiveDirectImageAlt(archive),
+    imageCaption: `${archive.title} from ${archive.roomName} with ${archive.participantCount} contributors, ${archive.countryCount} countries, and ${archive.strokeCount} strokes.`,
+    backHref: serialized.url,
+    backLabel: 'Archive page',
+    relatedLinks: [
+      `<a class="chip" href="${serialized.url}">Archive page</a>`,
+      `<a class="chip" href="/rooms/${archive.roomSlug}">Room page</a>`
+    ]
+  }));
 });
 
 app.get("*", (_req, res) => {
