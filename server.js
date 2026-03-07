@@ -856,48 +856,103 @@ app.get("/archives", (_req, res) => {
 });
 
 app.get("/sitemap.xml", (_req, res) => {
-  const staticUrls = [
-    "/",
-    "/archives",
-    "/featured",
-    "/gallery",
-    "/gallery/graffiti",
-    "/gallery/abstract",
-    "/gallery/pixel",
-    "/gallery/world",
+  const topicSlugs = Object.keys(drawingTopicConfig());
+  const roomUrls = roomSeoItems();
+  const entries = [
+    '/', '/archives', '/featured', '/gallery', '/gallery/graffiti', '/gallery/abstract', '/gallery/pixel', '/gallery/world', '/drawing',
+    ...topicSlugs.map((slug) => `/drawing/${slug}`),
+    ...roomUrls.map((room) => `/rooms/${room.slug}`),
+    ...archives.map((archive) => `/archive/${archive.id}`)
   ];
 
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap><loc>https://canvases.chromethemer.com/sitemap-pages.xml</loc></sitemap>
+  <sitemap><loc>https://canvases.chromethemer.com/sitemap-images.xml</loc></sitemap>
+</sitemapindex>`;
+
+  res.type("application/xml").send(xml);
+});
+
+app.get("/sitemap-pages.xml", (_req, res) => {
+  const topicSlugs = Object.keys(drawingTopicConfig());
+  const roomUrls = roomSeoItems();
   const entries = [
-    ...staticUrls.map((url) => ({
+    ...['/', '/archives', '/featured', '/gallery', '/gallery/graffiti', '/gallery/abstract', '/gallery/pixel', '/gallery/world', '/drawing'].map((url) => ({
       loc: `https://canvases.chromethemer.com${url}`,
       lastmod: nowIso(),
-      imageLoc: null,
+    })),
+    ...topicSlugs.map((slug) => ({
+      loc: `https://canvases.chromethemer.com/drawing/${slug}`,
+      lastmod: nowIso(),
+    })),
+    ...roomUrls.map((room) => ({
+      loc: `https://canvases.chromethemer.com/rooms/${room.slug}`,
+      lastmod: room.updatedAt,
     })),
     ...archives.map((archive) => ({
       loc: `https://canvases.chromethemer.com/archive/${archive.id}`,
       lastmod: archive.createdAt,
-      imageLoc: archive.imageUrl
-        ? `https://canvases.chromethemer.com${archive.imageUrl}`
-        : null,
-      imageTitle: archive.title,
-      imageCaption: archive.imageAlt || archive.title,
-    })),
+    }))
   ];
+
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${entries.map((entry) => `  <url>
+    <loc>${escapeXml(entry.loc)}</loc>
+    <lastmod>${escapeXml(entry.lastmod)}</lastmod>
+  </url>`).join('\n')}
+</urlset>`;
+
+  res.type("application/xml").send(xml);
+});
+
+app.get("/sitemap-images.xml", (_req, res) => {
+  const topicSlugs = Object.keys(drawingTopicConfig());
+  const topicEntries = topicSlugs.flatMap((slug) => buildTopicVisualItems(slug).slice(0, 20).map((item) => ({
+    page: `https://canvases.chromethemer.com/drawing/${slug}`,
+    lastmod: item.createdAt || nowIso(),
+    imageLoc: `https://canvases.chromethemer.com${item.imageUrl}`,
+    imageTitle: item.title,
+    imageCaption: item.caption,
+  })));
+
+  const roomEntries = roomSeoItems().map((room) => ({
+    page: `https://canvases.chromethemer.com/rooms/${room.slug}`,
+    lastmod: room.updatedAt,
+    imageLoc: `https://canvases.chromethemer.com${room.snapshotUrl}`,
+    imageTitle: `${room.name} live collaborative canvas preview`,
+    imageCaption: `${room.name} collaborative browser drawing canvas preview`,
+  }));
+
+  const archiveEntries = archives.map((archive) => ({
+    page: `https://canvases.chromethemer.com/archive/${archive.id}`,
+    lastmod: archive.createdAt,
+    imageLoc: `https://canvases.chromethemer.com${archive.imageUrl || archive.snapshotUrl}`,
+    imageTitle: archive.title,
+    imageCaption: archive.imageAlt || archive.title,
+  }));
+
+  const entries = [...roomEntries, ...archiveEntries, ...topicEntries];
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
 ${entries.map((entry) => `  <url>
-    <loc>${escapeXml(entry.loc)}</loc>
-    <lastmod>${escapeXml(entry.lastmod)}</lastmod>${entry.imageLoc ? `
+    <loc>${escapeXml(entry.page)}</loc>
+    <lastmod>${escapeXml(entry.lastmod)}</lastmod>
     <image:image>
       <image:loc>${escapeXml(entry.imageLoc)}</image:loc>
-      <image:title>${escapeXml(entry.imageTitle || "Collaborative canvas image")}</image:title>
-      <image:caption>${escapeXml(entry.imageCaption || entry.imageTitle || "Collaborative canvas image")}</image:caption>
-    </image:image>` : ""}
-  </url>`).join("\n")}
+      <image:title>${escapeXml(entry.imageTitle)}</image:title>
+      <image:caption>${escapeXml(entry.imageCaption)}</image:caption>
+    </image:image>
+  </url>`).join('\n')}
 </urlset>`;
 
   res.type("application/xml").send(xml);
+});
+
+app.get('/robots.txt', (_req, res) => {
+  res.type('text/plain').send(`User-agent: *\nAllow: /\n\nSitemap: https://canvases.chromethemer.com/sitemap.xml\nSitemap: https://canvases.chromethemer.com/sitemap-pages.xml\nSitemap: https://canvases.chromethemer.com/sitemap-images.xml\n`);
 });
 
 function galleryBuckets() {
@@ -995,6 +1050,303 @@ function renderGalleryPage(title, description, items, canonicalPath) {
   </html>`;
 }
 
+
+
+function serializeRoomSeo(room) {
+  return {
+    slug: room.slug,
+    name: room.name,
+    theme: room.theme,
+    countries: Array.isArray(room.countries) ? room.countries.slice(0, 8) : [],
+    snapshotUrl: roomPreviewPublicPath(room),
+    archiveCount: room.archivedCount || 0,
+    updatedAt: room.updatedAt || room.createdAt || nowIso(),
+    roundNumber: room.roundNumber || 1,
+    drawingCount: room.users ? room.users.size : 0,
+    viewerCount: room.viewers ? room.viewers.size : 0,
+  };
+}
+
+function roomSeoItems() {
+  return Array.from(rooms.values()).map(serializeRoomSeo);
+}
+
+function drawingTopicConfig() {
+  return {
+    'abstract-art': {
+      title: 'Abstract Art Drawings',
+      heading: 'Abstract Art Drawings From Collaborative Browser Canvases',
+      description: 'Browse abstract collaborative drawings, colorful browser canvas art, and live shared compositions generated inside ChromeThemer Canvases.',
+      intro: 'These abstract drawing pages combine live room previews with archived collaborative artwork. They are designed to surface long-tail image search traffic around browser canvas art, abstract doodles, and shared digital drawings.',
+      roomSlugs: ['color-storm', 'geometry-jam', 'midnight-mural'],
+      keywords: ['abstract art drawing', 'abstract browser canvas art', 'collaborative abstract doodle']
+    },
+    'graffiti-wall': {
+      title: 'Graffiti Wall Drawings',
+      heading: 'Graffiti Wall Drawings and Shared Browser Murals',
+      description: 'Explore graffiti wall drawings, collaborative digital murals, and neon scribble boards created in live browser canvas rooms.',
+      intro: 'This page groups graffiti-style collaborative canvases so Google can understand the visual theme, image captions, and room context around live browser wall art.',
+      roomSlugs: ['friday-graffiti', 'neon-scribble-wall', 'midnight-mural'],
+      keywords: ['graffiti wall drawing', 'online graffiti wall', 'collaborative graffiti canvas']
+    },
+    'browser-canvas-art': {
+      title: 'Browser Canvas Art',
+      heading: 'Browser Canvas Art Created Live With Other Visitors',
+      description: 'See browser canvas art, shared online drawing boards, and collaborative web-based canvas images from ChromeThemer Canvases.',
+      intro: 'These images come from real collaborative rooms running directly in the browser. Each visual links into a live room or replayable archive page.',
+      roomSlugs: ['world-doodle-board', 'color-storm', 'geometry-jam', 'block-party-board', 'pixel-party'],
+      keywords: ['browser canvas art', 'online canvas drawing', 'shared browser drawing board']
+    },
+    'collaborative-doodle': {
+      title: 'Collaborative Doodle Boards',
+      heading: 'Collaborative Doodle Boards and Shared Drawing Rooms',
+      description: 'Discover collaborative doodle boards, public browser sketch rooms, and playful multi-user canvas drawings saved from live sessions.',
+      intro: 'Collaborative doodle keywords are a strong fit for this project because the rooms constantly create fresh visuals, archive pages, and image-entry points.',
+      roomSlugs: ['world-doodle-board', 'block-party-board', 'pixel-party', 'friday-graffiti'],
+      keywords: ['collaborative doodle board', 'shared online doodle board', 'multi user drawing room']
+    }
+  };
+}
+
+function buildTopicVisualItems(topicKey) {
+  const config = drawingTopicConfig()[topicKey];
+  if (!config) return [];
+  const items = [];
+  const seen = new Set();
+
+  for (const archive of archives) {
+    if (!config.roomSlugs.includes(archive.roomSlug)) continue;
+    const key = `archive:${archive.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    items.push({
+      type: 'archive',
+      key,
+      title: archive.title,
+      imageUrl: archive.imageUrl || archive.snapshotUrl,
+      alt: archive.imageAlt || archive.title,
+      caption: `${archive.title} — collaborative drawing archive from ${archive.roomName} with ${archive.participantCount} participants and ${archive.strokeCount} strokes.`,
+      href: `/archive/${archive.id}`,
+      roomHref: `/rooms/${archive.roomSlug}`,
+      roomName: archive.roomName,
+      roomSlug: archive.roomSlug,
+      createdAt: archive.createdAt,
+      meta: `${archive.participantCount} contributors · ${archive.countryCount} countries · ${archive.strokeCount} strokes`,
+      schemaType: 'ImageObject'
+    });
+  }
+
+  for (const slug of config.roomSlugs) {
+    const room = rooms.get(slug);
+    if (!room) continue;
+    const key = `room:${slug}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    items.push({
+      type: 'room',
+      key,
+      title: `${room.name} live browser canvas preview`,
+      imageUrl: roomPreviewPublicPath(room),
+      alt: `${room.name} collaborative browser drawing canvas preview`,
+      caption: `${room.name} is a live collaborative drawing room focused on ${room.theme.toLowerCase()}.`,
+      href: `/rooms/${room.slug}`,
+      roomHref: `/rooms/${room.slug}`,
+      roomName: room.name,
+      roomSlug: room.slug,
+      createdAt: room.updatedAt || room.createdAt,
+      meta: `${room.users.size} drawing now · ${room.viewers.size} viewers · ${room.archivedCount} archived rounds`,
+      schemaType: 'ImageObject'
+    });
+  }
+
+  return items.slice(0, 36);
+}
+
+function renderStructuredDataScripts(pageUrl, pageTitle, description, items) {
+  const graph = {
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'CollectionPage',
+        name: pageTitle,
+        description,
+        url: pageUrl
+      },
+      ...items.slice(0, 12).map((item) => ({
+        '@type': 'ImageObject',
+        contentUrl: `https://canvases.chromethemer.com${item.imageUrl}`,
+        name: item.title,
+        description: item.caption,
+        acquireLicensePage: item.href ? `https://canvases.chromethemer.com${item.href}` : undefined,
+        creator: {
+          '@type': 'Organization',
+          name: 'ChromeThemer Canvases'
+        }
+      }))
+    ]
+  };
+  return `<script type="application/ld+json">${JSON.stringify(graph)}</script>`;
+}
+
+function renderDrawingHubPage() {
+  const topics = Object.entries(drawingTopicConfig()).map(([slug, cfg]) => ({ slug, ...cfg }));
+  const cards = topics.map((topic) => `
+    <article class="topic-card">
+      <div class="topic-card__body">
+        <h2><a href="/drawing/${topic.slug}">${escapeXml(topic.title)}</a></h2>
+        <p>${escapeXml(topic.description)}</p>
+        <div class="topic-card__chips">${topic.keywords.map((k) => `<span>${escapeXml(k)}</span>`).join('')}</div>
+      </div>
+    </article>`).join('');
+
+  return `<!DOCTYPE html>
+  <html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Drawing Topics | ChromeThemer Canvases</title>
+    <meta name="description" content="Browse drawing topic pages built to help ChromeThemer Canvases earn long-tail search and Google Images traffic." />
+    <link rel="canonical" href="https://canvases.chromethemer.com/drawing" />
+    <style>:root{--bg:#0f1220;--panel:#181b31;--panel2:#1f2442;--text:#f5f7ff;--muted:#b9bfdc;--border:rgba(255,255,255,.08)}*{box-sizing:border-box}body{margin:0;font-family:Inter,Arial,sans-serif;background:linear-gradient(180deg,#0f1220,#13172a);color:var(--text);padding:24px}.wrap{max-width:1160px;margin:0 auto}.nav{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}.btn{padding:10px 14px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:#fff;text-decoration:none;font-weight:700}.hero,.topic-card{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--border);border-radius:24px;box-shadow:0 18px 48px rgba(0,0,0,.24)}.hero{padding:26px;margin-bottom:22px}.hero p,.topic-card p{color:var(--muted);line-height:1.7}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px}.topic-card__body{padding:20px}.topic-card__body h2{margin:0 0 10px}.topic-card__body a{color:#fff;text-decoration:none}.topic-card__chips{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}.topic-card__chips span{padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:var(--muted);font-size:.92rem}</style>
+    ${renderStructuredDataScripts('https://canvases.chromethemer.com/drawing', 'Drawing Topics', 'Drawing topic pages for ChromeThemer Canvases', [])}
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="nav"><a class="btn" href="/">← Back to live canvases</a><a class="btn" href="/archives">Archive index</a></div>
+      <section class="hero">
+        <h1>Drawing Topics</h1>
+        <p>These landing pages group related collaborative canvas images into crawlable topic clusters. Each page is built to support long-tail image discovery, archive discovery, and room discovery.</p>
+      </section>
+      <section class="grid">${cards}</section>
+    </div>
+  </body>
+  </html>`;
+}
+
+function renderDrawingTopicPage(topicKey) {
+  const config = drawingTopicConfig()[topicKey];
+  if (!config) return null;
+  const items = buildTopicVisualItems(topicKey);
+  const pageUrl = `https://canvases.chromethemer.com/drawing/${topicKey}`;
+  const cards = items.map((item) => `
+    <figure class="drawing-card">
+      <a class="drawing-card__media" href="${item.href}">
+        <img src="${item.imageUrl}" alt="${escapeXml(item.alt)}" loading="lazy" width="1200" height="760" />
+      </a>
+      <figcaption class="drawing-card__body">
+        <h2><a href="${item.href}">${escapeXml(item.title)}</a></h2>
+        <p>${escapeXml(item.caption)}</p>
+        <div class="drawing-card__meta">${escapeXml(item.meta)}</div>
+        <div class="drawing-card__links"><a href="${item.href}">Open page</a> · <a href="${item.roomHref}">Room page</a></div>
+      </figcaption>
+    </figure>`).join('');
+
+  const relatedLinks = Object.entries(drawingTopicConfig())
+    .filter(([slug]) => slug !== topicKey)
+    .map(([slug, cfg]) => `<a class="chip" href="/drawing/${slug}">${escapeXml(cfg.title)}</a>`)
+    .join('');
+
+  return `<!DOCTYPE html>
+  <html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeXml(config.title)} | ChromeThemer Canvases</title>
+    <meta name="description" content="${escapeXml(config.description)}" />
+    <link rel="canonical" href="${pageUrl}" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="${escapeXml(config.title)} | ChromeThemer Canvases" />
+    <meta property="og:description" content="${escapeXml(config.description)}" />
+    <meta property="og:url" content="${pageUrl}" />
+    ${items[0] ? `<meta property="og:image" content="https://canvases.chromethemer.com${items[0].imageUrl}" />` : ''}
+    <style>:root{--bg:#0f1220;--panel:#181b31;--panel2:#1f2442;--text:#f5f7ff;--muted:#b9bfdc;--border:rgba(255,255,255,.08)}*{box-sizing:border-box}body{margin:0;font-family:Inter,Arial,sans-serif;background:linear-gradient(180deg,#0f1220,#13172a);color:var(--text);padding:24px}.wrap{max-width:1260px;margin:0 auto}.nav{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}.btn,.chip{padding:10px 14px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:#fff;text-decoration:none;font-weight:700}.hero{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--border);border-radius:28px;padding:26px;box-shadow:0 18px 48px rgba(0,0,0,.24);margin-bottom:22px}.hero p,.copy p{color:var(--muted);line-height:1.75;max-width:78ch}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,380px));gap:22px;align-items:start}.drawing-card{margin:0;background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--border);border-radius:24px;overflow:hidden;box-shadow:0 18px 42px rgba(0,0,0,.22)}.drawing-card__media img{width:100%;display:block;aspect-ratio:16/9;object-fit:cover;background:#171c32}.drawing-card__body{padding:18px}.drawing-card__body h2{margin:0 0 10px;font-size:1.08rem;line-height:1.4}.drawing-card__body h2 a,.drawing-card__links a{color:#fff;text-decoration:none}.drawing-card__body p,.drawing-card__meta{color:var(--muted);line-height:1.7}.drawing-card__links{margin-top:12px}.related,.copy{margin-top:22px}.chips{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}@media (max-width:720px){body{padding:16px}.grid{grid-template-columns:1fr}}</style>
+    ${renderStructuredDataScripts(pageUrl, config.title, config.description, items)}
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="nav"><a class="btn" href="/">← Back to live canvases</a><a class="btn" href="/drawing">All drawing topics</a><a class="btn" href="/archives">Archive index</a></div>
+      <section class="hero">
+        <h1>${escapeXml(config.heading)}</h1>
+        <p>${escapeXml(config.description)}</p>
+        <p>${escapeXml(config.intro)}</p>
+      </section>
+      <section class="grid">${cards || '<p>No drawings are available yet, but live room previews are being generated continuously.</p>'}</section>
+      <section class="copy">
+        <h2>How these drawing pages help discovery</h2>
+        <p>Each visual on this page includes a descriptive filename, relevant alt text, surrounding context, and direct links into either a live room page or a replayable archive page. That gives ChromeThemer Canvases many more keyword combinations to target beyond the main gallery and archive index.</p>
+      </section>
+      <section class="related">
+        <h2>Related drawing topics</h2>
+        <div class="chips">${relatedLinks}</div>
+      </section>
+    </div>
+  </body>
+  </html>`;
+}
+
+function renderRoomSeoPage(room) {
+  const recent = archives.filter((item) => item.roomSlug === room.slug).slice(0, 12).map(serializeArchive);
+  const roomUrl = `https://canvases.chromethemer.com/rooms/${room.slug}`;
+  const pageTitle = `${room.name} Live Collaborative Canvas`;
+  const description = `${room.name} is a live collaborative browser canvas on ChromeThemer. Browse the room preview, recent archives, and join the shared drawing experience.`;
+  const cards = recent.map((archive) => `
+    <article class="archive-card">
+      <a class="archive-card__media" href="${archive.url}"><img src="${archive.imageUrl || archive.snapshotUrl}" alt="${escapeXml(archive.imageAlt || archive.title)}" loading="lazy" width="800" height="453" /></a>
+      <div class="archive-card__body">
+        <h2><a href="${archive.url}">${escapeXml(archive.title)}</a></h2>
+        <p>${archive.participantCount} contributors · ${archive.countryCount} countries · ${archive.strokeCount} strokes</p>
+      </div>
+    </article>`).join('');
+  return `<!DOCTYPE html>
+  <html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeXml(pageTitle)} | ChromeThemer Canvases</title>
+    <meta name="description" content="${escapeXml(description)}" />
+    <link rel="canonical" href="${roomUrl}" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="${escapeXml(pageTitle)} | ChromeThemer Canvases" />
+    <meta property="og:description" content="${escapeXml(description)}" />
+    <meta property="og:url" content="${roomUrl}" />
+    <meta property="og:image" content="https://canvases.chromethemer.com${roomPreviewPublicPath(room)}" />
+    <style>:root{--bg:#0f1220;--panel:#181b31;--panel2:#1f2442;--text:#f5f7ff;--muted:#b9bfdc;--border:rgba(255,255,255,.08)}*{box-sizing:border-box}body{margin:0;font-family:Inter,Arial,sans-serif;background:linear-gradient(180deg,#0f1220,#13172a);color:var(--text);padding:24px}.wrap{max-width:1220px;margin:0 auto}.nav{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}.btn{padding:10px 14px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:#fff;text-decoration:none;font-weight:700}.hero,.panel,.archive-card{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--border);border-radius:24px;box-shadow:0 18px 48px rgba(0,0,0,.24)}.hero{padding:26px;margin-bottom:22px}.hero p,.panel p,.archive-card p{color:var(--muted);line-height:1.75}.grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(280px,.85fr);gap:22px}.preview{overflow:hidden}.preview img{width:100%;display:block;aspect-ratio:16/9;object-fit:cover;background:#171c32}.preview__body,.panel,.archive-card__body{padding:18px}.archive-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,360px));gap:20px;margin-top:22px}.archive-card{overflow:hidden}.archive-card__media img{width:100%;display:block;aspect-ratio:16/9;object-fit:cover}.archive-card__body h2{margin:0 0 10px;font-size:1.05rem}.archive-card__body a{color:#fff;text-decoration:none}.chips{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}.chips span{padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:var(--muted)}@media (max-width:900px){.grid{grid-template-columns:1fr}}</style>
+    ${renderStructuredDataScripts(roomUrl, pageTitle, description, [{ imageUrl: roomPreviewPublicPath(room), title: pageTitle, caption: description, href: `/rooms/${room.slug}` }, ...recent])}
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="nav"><a class="btn" href="/">← Back to live canvases</a><a class="btn" href="/drawing">Drawing topics</a><a class="btn" href="/archives">Archive index</a></div>
+      <section class="hero">
+        <h1>${escapeXml(room.name)}</h1>
+        <p>${escapeXml(description)}</p>
+        <div class="chips"><span>${escapeXml(room.theme)}</span><span>${room.users.size} drawing now</span><span>${room.viewers.size} viewers</span><span>${room.archivedCount} archived rounds</span></div>
+      </section>
+      <section class="grid">
+        <article class="preview panel">
+          <img src="${roomPreviewPublicPath(room)}" alt="${escapeXml(room.name)} collaborative browser drawing canvas preview" width="1200" height="760" />
+          <div class="preview__body">
+            <h2>Live room preview</h2>
+            <p>${escapeXml(room.name)} focuses on ${escapeXml(room.theme.toLowerCase())}. The preview image updates from the current room state and gives search engines an indexable image tied directly to this room.</p>
+          </div>
+        </article>
+        <aside class="panel">
+          <h2>Room details</h2>
+          <p>This room is part of the ChromeThemer Canvases network of collaborative browser drawing boards.</p>
+          <ul>
+            <li>Countries shown: ${escapeXml((room.countries || []).join(', ') || 'Global mix')}</li>
+            <li>Current round: ${room.roundNumber}</li>
+            <li>Last updated: ${escapeXml(new Date(room.updatedAt || room.createdAt).toUTCString())}</li>
+          </ul>
+          <p><a class="btn" href="/">Open the live canvases homepage</a></p>
+        </aside>
+      </section>
+      <section class="archive-grid">${cards || '<p>No archived rounds for this room yet.</p>'}</section>
+    </div>
+  </body>
+  </html>`;
+}
+
+
 app.get('/gallery', (_req, res) => {
   const { all } = galleryBuckets();
   res.send(renderGalleryPage(
@@ -1042,6 +1394,29 @@ app.get('/gallery/:slug', (req, res) => {
   ));
 });
 
+
+
+app.get('/drawing', (_req, res) => {
+  res.send(renderDrawingHubPage());
+});
+
+app.get('/drawing/:slug', (req, res) => {
+  const html = renderDrawingTopicPage(req.params.slug);
+  if (!html) {
+    res.status(404).send('Drawing topic not found');
+    return;
+  }
+  res.send(html);
+});
+
+app.get('/rooms/:slug', (req, res) => {
+  const room = rooms.get(req.params.slug);
+  if (!room) {
+    res.status(404).send('Room not found');
+    return;
+  }
+  res.send(renderRoomSeoPage(room));
+});
 
 app.get("*", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
