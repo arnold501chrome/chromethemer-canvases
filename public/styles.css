@@ -229,3 +229,193 @@ img { max-width: 100%; display: block; }
     max-width: 100%;
   }
 }
+
+
+
+
+
+
+
+
+
+/* =========================================
+   Card grid fix for featured / archives / drawing pages
+   Paste near the bottom of your main stylesheet
+   ========================================= */
+
+/* Tighter responsive grid */
+.featured-grid,
+.archives-grid,
+.drawing-grid,
+.topic-grid,
+.archive-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 24px;
+  align-items: start;
+}
+
+/* Large tablets / small desktops */
+@media (max-width: 1400px) {
+  .featured-grid,
+  .archives-grid,
+  .drawing-grid,
+  .topic-grid,
+  .archive-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Tablets */
+@media (max-width: 980px) {
+  .featured-grid,
+  .archives-grid,
+  .drawing-grid,
+  .topic-grid,
+  .archive-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Mobile */
+@media (max-width: 640px) {
+  .featured-grid,
+  .archives-grid,
+  .drawing-grid,
+  .topic-grid,
+  .archive-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Prevent cards from stretching vertically */
+.featured-grid > *,
+.archives-grid > *,
+.drawing-grid > *,
+.topic-grid > *,
+.archive-grid > * {
+  align-self: start;
+}
+
+/* Main card sizing fix */
+.featured-grid .card,
+.archives-grid .card,
+.drawing-grid .card,
+.topic-grid .card,
+.archive-grid .card,
+.featured-grid .archive-card,
+.archives-grid .archive-card,
+.drawing-grid .archive-card,
+.topic-grid .archive-card,
+.archive-grid .archive-card,
+.featured-grid .drawing-card,
+.archives-grid .drawing-card,
+.drawing-grid .drawing-card,
+.topic-grid .drawing-card,
+.archive-grid .drawing-card {
+  height: auto;
+  min-height: 0;
+  max-width: none;
+}
+
+/* Make image area shorter and more like homepage cards */
+.featured-grid .card img,
+.archives-grid .card img,
+.drawing-grid .card img,
+.topic-grid .card img,
+.archive-grid .card img,
+.featured-grid .archive-card img,
+.archives-grid .archive-card img,
+.drawing-grid .archive-card img,
+.topic-grid .archive-card img,
+.archive-grid .archive-card img,
+.featured-grid .drawing-card img,
+.archives-grid .drawing-card img,
+.drawing-grid .drawing-card img,
+.topic-grid .drawing-card img,
+.archive-grid .drawing-card img {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  display: block;
+}
+
+/* If your cards use a dedicated media wrapper, this helps too */
+.featured-grid .card__media,
+.archives-grid .card__media,
+.drawing-grid .card__media,
+.topic-grid .card__media,
+.archive-grid .card__media,
+.featured-grid .archive-card__media,
+.archives-grid .archive-card__media,
+.drawing-grid .archive-card__media,
+.topic-grid .archive-card__media,
+.archive-grid .archive-card__media,
+.featured-grid .drawing-card__media,
+.archives-grid .drawing-card__media,
+.drawing-grid .drawing-card__media,
+.topic-grid .drawing-card__media,
+.archive-grid .drawing-card__media {
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+}
+
+/* Keep titles and text from making cards feel too tall */
+.featured-grid h2,
+.featured-grid h3,
+.archives-grid h2,
+.archives-grid h3,
+.drawing-grid h2,
+.drawing-grid h3,
+.topic-grid h2,
+.topic-grid h3,
+.archive-grid h2,
+.archive-grid h3 {
+  margin-bottom: 10px;
+  line-height: 1.2;
+}
+
+.featured-grid p,
+.archives-grid p,
+.drawing-grid p,
+.topic-grid p,
+.archive-grid p {
+  margin-bottom: 12px;
+}
+
+/* Optional: clamp very long titles so all cards look tidier */
+.featured-grid .card h2,
+.featured-grid .card h3,
+.archives-grid .card h2,
+.archives-grid .card h3,
+.drawing-grid .card h2,
+.drawing-grid .card h3,
+.topic-grid .card h2,
+.topic-grid .card h3,
+.archive-grid .card h2,
+.archive-grid .card h3,
+.featured-grid .archive-card h2,
+.featured-grid .archive-card h3,
+.archives-grid .archive-card h2,
+.archives-grid .archive-card h3,
+.drawing-grid .archive-card h2,
+.drawing-grid .archive-card h3,
+.topic-grid .archive-card h2,
+.topic-grid .archive-card h3,
+.archive-grid .archive-card h2,
+.archive-grid .archive-card h3,
+.featured-grid .drawing-card h2,
+.featured-grid .drawing-card h3,
+.archives-grid .drawing-card h2,
+.archives-grid .drawing-card h3,
+.drawing-grid .drawing-card h2,
+.drawing-grid .drawing-card h3,
+.topic-grid .drawing-card h2,
+.topic-grid .drawing-card h3,
+.archive-grid .drawing-card h2,
+.archive-grid .drawing-card h3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
