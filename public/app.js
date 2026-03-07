@@ -119,7 +119,7 @@
     sidebarCap.textContent = `Room cap: ${room.maxUsers} active drawers`;
     sidebarArchiveCount.textContent = `Archived rounds: ${room.archivedCount}`;
     roundInfo.textContent = `Current round: ${room.roundNumber} · Ends in ${formatTimeLeft(room.roundEndsAt)}`;
-    heroPreviewImage.src = `${room.snapshotUrl}${room.snapshotUrl.includes("?") ? "&" : "?"}ts=${Date.now()}`;
+    heroPreviewImage.src = room.snapshotUrl;
     heroPreviewBadge.textContent = `Live preview · ${room.name}`;
   }
 
@@ -146,7 +146,7 @@
             <span class="ct-pill">Round ${room.roundNumber}</span>
           </div>
           <div class="ct-preview">
-            <img src="${room.snapshotUrl}${room.snapshotUrl.includes("?") ? "&" : "?"}ts=${Date.now()}" alt="${escapeHtml(room.name)} preview" />
+            <img src="${room.snapshotUrl}" alt="${escapeHtml(room.name)} preview" />
           </div>
         </div>
         <div class="ct-room__body">
@@ -210,21 +210,6 @@
 
     updateSidebarFromRoom(selectedRoom());
     syncBoardHint();
-  }
-
-  async function refreshLobbySnapshot() {
-    try {
-      const response = await fetch(`/api/canvases/lobby?t=${Date.now()}`, { cache: "no-store" });
-      const data = await response.json();
-      if (!data || !Array.isArray(data.rooms)) return;
-      state.rooms = data.rooms;
-      if (!state.rooms.find((room) => room.slug === state.selectedRoomSlug) && state.rooms[0]) {
-        state.selectedRoomSlug = state.rooms[0].slug;
-      }
-      renderLobby();
-    } catch (_error) {
-      // Ignore temporary lobby refresh errors
-    }
   }
 
   function resizeCanvasForDisplay() {
@@ -484,10 +469,6 @@
       roundInfo.textContent = `Current round: ${room.roundNumber} · Ends in ${formatTimeLeft(room.roundEndsAt)}`;
     }
   }, 1000);
-
-  window.setInterval(() => {
-    refreshLobbySnapshot();
-  }, 4000);
 
   resizeCanvasForDisplay();
   syncBoardHint();
