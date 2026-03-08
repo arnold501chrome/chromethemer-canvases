@@ -35,6 +35,29 @@ const GENERATED_DIR = path.join(STORAGE_ROOT, "generated");
 const GENERATED_ARCHIVES_DIR = path.join(GENERATED_DIR, "archives");
 const GENERATED_ROOMS_DIR = path.join(GENERATED_DIR, "rooms");
 const GENERATED_IMAGES_DIR = path.join(STORAGE_ROOT, "images");
+const MODERATION_STORE_PATH = path.join(STORAGE_ROOT, "data", "moderation.json");
+const MODERATION_TOKEN = process.env.MODERATION_TOKEN || "";
+const BLOCKED_TEXT_PATTERNS = [
+  /\bfuck\b/i,
+  /\bshit\b/i,
+  /\bbitch\b/i,
+  /\bcunt\b/i,
+  /\bslut\b/i,
+  /\bwhore\b/i,
+  /\brape\b/i,
+  /\bnigg(?:a|er)?\b/i,
+  /\bfag(?:got)?\b/i,
+  /\bkike\b/i,
+  /\bspic\b/i,
+  /\bretard(?:ed)?\b/i,
+  /\bpenis\b/i,
+  /\bvagina\b/i,
+  /\bdick\b/i,
+  /\bpussy\b/i,
+  /\bsex\b/i,
+  /\bporn\b/i,
+  /\bnazi\b/i
+];
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -43,6 +66,7 @@ app.use("/images", express.static(path.join(STORAGE_ROOT, "images")));
 
 function ensureDataDir() {
   fs.mkdirSync(path.dirname(ARCHIVE_STORE_PATH), { recursive: true });
+  fs.mkdirSync(path.dirname(MODERATION_STORE_PATH), { recursive: true });
   fs.mkdirSync(GENERATED_ARCHIVES_DIR, { recursive: true });
   fs.mkdirSync(GENERATED_ROOMS_DIR, { recursive: true });
   fs.mkdirSync(GENERATED_IMAGES_DIR, { recursive: true });
@@ -119,6 +143,25 @@ function archiveImageFilePath(archiveId, title) {
   return path.join(GENERATED_IMAGES_DIR, `${archiveId}-${slugify(title)}.svg`);
 }
 
+function containsBlockedText(value) {
+  const input = String(value || "").replace(/[^a-z0-9\s_-]/gi, " ").trim();
+  if (!input) return false;
+  return BLOCKED_TEXT_PATTERNS.some((pattern) => pattern.test(input));
+}
+
+function moderationQuerySuffix() {
+  return MODERATION_TOKEN ? `?token=${encodeURIComponent(MODERATION_TOKEN)}` : "";
+}
+
+function requestHasModerationAccess(req) {
+  if (!MODERATION_TOKEN) return true;
+  return req.query.token === MODERATION_TOKEN || req.get("x-moderation-token") === MODERATION_TOKEN;
+}
+
+function requireModeration(req, res, next) {
+  if (requestHasModerationAccess(req)) return next();
+  res.status(403).send("Moderation token required");
+}
 
 function sanitizeGuestName(input) {
   const fallback = makeGuestName();
@@ -127,20 +170,8 @@ function sanitizeGuestName(input) {
   if (!trimmed) return fallback;
   const cleaned = trimmed.replace(/[^a-zA-Z0-9 _\-.]/g, "").trim();
   if (!cleaned) return fallback;
-  const blocked = [
-    /admin/i,
-    /moderator/i,
-    /support/i,
-    /owner/i,
-    /staff/i,
-    /fuck/i,
-    /shit/i,
-    /bitch/i,
-    /nigg/i,
-    /cunt/i,
-    /rape/i,
-  ];
-  if (blocked.some((rule) => rule.test(cleaned))) return fallback;
+  const blocked = [/admin/i, /moderator/i, /support/i, /owner/i, /staff/i];
+  if (blocked.some((rule) => rule.test(cleaned)) || containsBlockedText(cleaned)) return fallback;
   return cleaned;
 }
 
@@ -317,6 +348,25 @@ function loadArchives() {
   }
 }
 
+function loadModerationStore() {
+  ensureDataDir();
+  try {
+    if (!fs.existsSync(MODERATION_STORE_PATH)) {
+      return { deletedArchives: [], hiddenRooms: [] };
+    }
+    const raw = fs.readFileSync(MODERATION_STORE_PATH, "utf8");
+    const parsed = JSON.parse(raw);
+    return {
+      deletedArchives: Array.isArray(parsed.deletedArchives) ? parsed.deletedArchives : [],
+      hiddenRooms: Array.isArray(parsed.hiddenRooms) ? parsed.hiddenRooms : [],
+    };
+  } catch (_error) {
+    return { deletedArchives: [], hiddenRooms: [] };
+  }
+}
+
+let moderation = loadModerationStore();
+
 let archives = loadArchives();
 
 function normalizeArchiveRecord(archive) {
@@ -338,6 +388,32 @@ archives = archives.map(normalizeArchiveRecord).filter(Boolean);
 function saveArchives() {
   ensureDataDir();
   fs.writeFileSync(ARCHIVE_STORE_PATH, JSON.stringify(archives.slice(0, MAX_ARCHIVES), null, 2));
+}
+
+function saveModerationStore() {
+  ensureDataDir();
+  fs.writeFileSync(MODERATION_STORE_PATH, JSON.stringify({
+    deletedArchives: Array.from(new Set(moderation.deletedArchives)).slice(0, 1000),
+    hiddenRooms: Array.from(new Set(moderation.hiddenRooms)).slice(0, 200),
+  }, null, 2));
+}
+
+function isArchiveDeleted(archiveOrId) {
+  const id = typeof archiveOrId === "string" ? archiveOrId : archiveOrId && archiveOrId.id;
+  return !!id && moderation.deletedArchives.includes(id);
+}
+
+function isRoomHidden(roomOrSlug) {
+  const slug = typeof roomOrSlug === "string" ? roomOrSlug : roomOrSlug && roomOrSlug.slug;
+  return !!slug && moderation.hiddenRooms.includes(slug);
+}
+
+function visibleArchivesList() {
+  return archives.filter((archive) => !isArchiveDeleted(archive) && !isRoomHidden(archive.roomSlug));
+}
+
+function visibleRoomList() {
+  return Array.from(rooms.values()).filter((room) => !isRoomHidden(room));
 }
 
 function serializeRoom(room) {
@@ -381,11 +457,11 @@ function serializeArchive(archive) {
 }
 
 function recentArchives(limit = 8) {
-  return archives.slice(0, limit).map(serializeArchive);
+  return visibleArchivesList().slice(0, limit).map(serializeArchive);
 }
 
 function featuredArchives(limit = 12) {
-  return archives
+  return visibleArchivesList()
     .slice()
     .sort((a, b) => (b.featuredScore || 0) - (a.featuredScore || 0) || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, limit)
@@ -397,7 +473,7 @@ function computeFeaturedScore(archive) {
 }
 
 function getLobbyRooms() {
-  return Array.from(rooms.values()).slice(0, LOBBY_LIMIT).map(serializeRoom);
+  return visibleRoomList().slice(0, LOBBY_LIMIT).map(serializeRoom);
 }
 
 function markRoomUpdated(room) {
@@ -448,7 +524,7 @@ function appendStroke(room, stroke) {
 }
 
 function archiveRoom(room, reason) {
-  if (!room.strokes.length) return null;
+  if (!room.strokes.length || isRoomHidden(room)) return null;
   const createdAt = nowIso();
   const participantIds = new Set(room.strokes.map((stroke) => stroke.userId));
   const participantNames = Array.from(new Set(room.strokes.map((stroke) => stroke.name).filter(Boolean))).slice(0, 18);
@@ -492,6 +568,44 @@ function archiveRoom(room, reason) {
   room.lastArchiveId = archive.id;
   saveArchives();
   return archive;
+}
+
+function deleteArchiveFiles(archive) {
+  const candidates = [
+    path.join(GENERATED_ARCHIVES_DIR, `${archive.id}.svg`),
+    archiveImageFilePath(archive.id, archive.title),
+  ];
+  for (const filePath of candidates) {
+    try {
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    } catch (_error) {}
+  }
+}
+
+function deleteArchiveById(archiveId) {
+  const archive = archives.find((entry) => entry.id === archiveId);
+  if (!archive) return false;
+  deleteArchiveFiles(archive);
+  archives = archives.filter((entry) => entry.id !== archiveId);
+  if (!moderation.deletedArchives.includes(archiveId)) moderation.deletedArchives.push(archiveId);
+  saveArchives();
+  saveModerationStore();
+  broadcastArchives();
+  broadcastFeatured();
+  return true;
+}
+
+function clearRoomNow(room, reason = "moderation-clear") {
+  if (!room) return false;
+  room.strokes = [];
+  room.clearVotes.clear();
+  room.roundEndsAt = minutesFromNow(ROUND_MINUTES_MIN, ROUND_MINUTES_MAX);
+  markRoomUpdated(room);
+  updateRoomPreview(room);
+  io.to(room.slug).emit("room:cleared", { room: serializeRoom(room), archive: null, reason });
+  broadcastRoomState(room);
+  broadcastLobby();
+  return true;
 }
 
 function resetRoom(room, reason = "timer") {
@@ -576,7 +690,7 @@ app.post("/api/canvases/room/:slug/reset", (req, res) => {
 
 app.get("/archive/:id", (req, res) => {
   const archive = archives.find((item) => item.id === req.params.id);
-  if (!archive) {
+  if (!archive || isArchiveDeleted(archive) || isRoomHidden(archive.roomSlug)) {
     res.status(404).send("Archive not found");
     return;
   }
@@ -879,7 +993,7 @@ app.get("/sitemap.xml", (_req, res) => {
     '/', '/archives', '/featured', '/gallery', '/gallery/graffiti', '/gallery/abstract', '/gallery/pixel', '/gallery/world', '/drawing',
     ...topicSlugs.map((slug) => `/drawing/${slug}`),
     ...roomUrls.map((room) => `/rooms/${room.slug}`),
-    ...archives.map((archive) => `/archive/${archive.id}`)
+    ...visibleArchivesList().map((archive) => `/archive/${archive.id}`)
   ];
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -911,11 +1025,11 @@ app.get("/sitemap-pages.xml", (_req, res) => {
       loc: `https://canvases.chromethemer.com/image/room/${room.slug}`,
       lastmod: room.updatedAt,
     })),
-    ...archives.map((archive) => ({
+    ...visibleArchivesList().map((archive) => ({
       loc: `https://canvases.chromethemer.com/archive/${archive.id}`,
       lastmod: archive.createdAt,
     })),
-    ...archives.map((archive) => ({
+    ...visibleArchivesList().map((archive) => ({
       loc: `https://canvases.chromethemer.com/image/archive/${archive.id}`,
       lastmod: archive.createdAt,
     }))
@@ -950,7 +1064,7 @@ app.get("/sitemap-images.xml", (_req, res) => {
     imageCaption: `${room.name} collaborative browser drawing canvas preview`,
   }));
 
-  const archiveEntries = archives.map((archive) => ({
+  const archiveEntries = visibleArchivesList().map((archive) => ({
     page: `https://canvases.chromethemer.com/archive/${archive.id}`,
     lastmod: archive.createdAt,
     imageLoc: `https://canvases.chromethemer.com${archive.imageUrl || archive.snapshotUrl}`,
@@ -966,7 +1080,7 @@ app.get("/sitemap-images.xml", (_req, res) => {
     imageCaption: `${room.name} live collaborative canvas image file and landing page`,
   }));
 
-  const archiveImageLandingEntries = archives.map((archive) => ({
+  const archiveImageLandingEntries = visibleArchivesList().map((archive) => ({
     page: `https://canvases.chromethemer.com/image/archive/${archive.id}`,
     lastmod: archive.createdAt,
     imageLoc: `https://canvases.chromethemer.com${archive.imageUrl || archive.snapshotUrl}`,
@@ -997,7 +1111,7 @@ app.get('/robots.txt', (_req, res) => {
 });
 
 function galleryBuckets() {
-  const all = archives.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const all = visibleArchivesList().slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   const bySlug = {
     graffiti: all.filter((a) => ["friday-graffiti", "neon-scribble-wall", "midnight-mural"].includes(a.roomSlug)),
@@ -1117,7 +1231,7 @@ function serializeRoomSeo(room) {
 }
 
 function roomSeoItems() {
-  return Array.from(rooms.values()).map(serializeRoomSeo);
+  return visibleRoomList().map(serializeRoomSeo);
 }
 
 function drawingTopicConfig() {
@@ -1163,7 +1277,7 @@ function buildTopicVisualItems(topicKey) {
   const items = [];
   const seen = new Set();
 
-  for (const archive of archives) {
+  for (const archive of visibleArchivesList()) {
     if (!config.roomSlugs.includes(archive.roomSlug)) continue;
     const key = `archive:${archive.id}`;
     if (seen.has(key)) continue;
@@ -1187,7 +1301,7 @@ function buildTopicVisualItems(topicKey) {
 
   for (const slug of config.roomSlugs) {
     const room = rooms.get(slug);
-    if (!room) continue;
+    if (!room || isRoomHidden(room)) continue;
     const key = `room:${slug}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -1354,7 +1468,7 @@ function roomSeoProfile(room) {
 
 function pickRelatedRooms(room, limit = 3) {
   const profile = roomSeoProfile(room);
-  return Array.from(rooms.values())
+  return visibleRoomList()
     .filter((candidate) => candidate.slug !== room.slug)
     .map((candidate) => {
       const other = roomSeoProfile(candidate);
@@ -1373,7 +1487,7 @@ function pickRelatedRooms(room, limit = 3) {
 }
 
 function renderRoomSeoPage(room) {
-  const recent = archives.filter((item) => item.roomSlug === room.slug).slice(0, 12).map(serializeArchive);
+  const recent = visibleArchivesList().filter((item) => item.roomSlug === room.slug).slice(0, 12).map(serializeArchive);
   const roomUrl = `https://canvases.chromethemer.com/rooms/${room.slug}`;
   const profile = roomSeoProfile(room);
   const topicCfg = drawingTopicConfig()[profile.primaryTopic];
@@ -1502,6 +1616,56 @@ function renderImageLandingPage({ pageTitle, description, canonicalPath, imageUr
 }
 
 
+
+app.get('/admin/moderation', requireModeration, (_req, res) => {
+  const archiveRows = visibleArchivesList().slice(0, 120).map((archive) => `
+    <tr>
+      <td><a href="/archive/${archive.id}">${escapeXml(archive.title)}</a></td>
+      <td>${escapeXml(archive.roomName)}</td>
+      <td>${archive.strokeCount}</td>
+      <td>${escapeXml(new Date(archive.createdAt).toUTCString())}</td>
+      <td><a class="btn danger" href="/admin/delete/archive/${archive.id}${moderationQuerySuffix()}">Delete archive</a></td>
+    </tr>
+  `).join('');
+  const roomRows = visibleRoomList().map((room) => `
+    <tr>
+      <td>${escapeXml(room.name)}</td>
+      <td>${room.users.size}</td>
+      <td>${room.viewers.size}</td>
+      <td>${room.strokes.length}</td>
+      <td><a class="btn warn" href="/admin/clear-room/${room.slug}${moderationQuerySuffix()}">Clear live room</a></td>
+    </tr>
+  `).join('');
+  res.send(`<!DOCTYPE html>
+  <html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Moderation | ChromeThemer Canvases</title>
+  <style>:root{--bg:#0f1220;--panel:#181b31;--panel2:#1f2442;--text:#f5f7ff;--muted:#b9bfdc;--border:rgba(255,255,255,.08)}*{box-sizing:border-box}body{margin:0;font-family:Inter,Arial,sans-serif;background:linear-gradient(180deg,#0f1220,#13172a);color:var(--text);padding:24px}.wrap{max-width:1200px;margin:0 auto}.panel{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--border);border-radius:24px;padding:22px;box-shadow:0 18px 48px rgba(0,0,0,.24);margin-bottom:20px}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:12px 10px;border-bottom:1px solid rgba(255,255,255,.08);vertical-align:top}a{color:#fff}.btn{display:inline-block;padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.08);text-decoration:none;color:#fff;font-weight:700}.danger{background:#7d2240}.warn{background:#5b416b}.nav{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}.small{color:var(--muted);line-height:1.7}</style>
+  </head><body><div class="wrap"><div class="nav"><a class="btn" href="/">← Back to app</a></div>
+  <section class="panel"><h1>Moderation</h1><p class="small">Delete offensive archive pages or clear a live room instantly. Add <code>?token=YOUR_TOKEN</code> if you set MODERATION_TOKEN on Render.</p></section>
+  <section class="panel"><h2>Live rooms</h2><table><thead><tr><th>Room</th><th>Drawers</th><th>Viewers</th><th>Strokes</th><th>Action</th></tr></thead><tbody>${roomRows || '<tr><td colspan="5">No rooms available.</td></tr>'}</tbody></table></section>
+  <section class="panel"><h2>Recent archives</h2><table><thead><tr><th>Title</th><th>Room</th><th>Strokes</th><th>Created</th><th>Action</th></tr></thead><tbody>${archiveRows || '<tr><td colspan="5">No archives yet.</td></tr>'}</tbody></table></section>
+  </div></body></html>`);
+});
+
+app.get('/admin/delete/archive/:id', requireModeration, (req, res) => {
+  const ok = deleteArchiveById(req.params.id);
+  if (!ok) {
+    res.status(404).send('Archive not found');
+    return;
+  }
+  res.redirect(`/admin/moderation${moderationQuerySuffix()}`);
+});
+
+app.get('/admin/clear-room/:slug', requireModeration, (req, res) => {
+  const room = rooms.get(req.params.slug);
+  if (!room) {
+    res.status(404).send('Room not found');
+    return;
+  }
+  clearRoomNow(room, 'manual-moderation');
+  res.redirect(`/admin/moderation${moderationQuerySuffix()}`);
+});
+
 app.get('/gallery', (_req, res) => {
   const { all } = galleryBuckets();
   res.send(renderGalleryPage(
@@ -1566,7 +1730,7 @@ app.get('/drawing/:slug', (req, res) => {
 
 app.get('/rooms/:slug', (req, res) => {
   const room = rooms.get(req.params.slug);
-  if (!room) {
+  if (!room || isRoomHidden(room)) {
     res.status(404).send('Room not found');
     return;
   }
@@ -1575,7 +1739,7 @@ app.get('/rooms/:slug', (req, res) => {
 
 app.get('/image/room/:slug', (req, res) => {
   const room = rooms.get(req.params.slug);
-  if (!room) {
+  if (!room || isRoomHidden(room)) {
     res.status(404).send('Image page not found');
     return;
   }
@@ -1599,7 +1763,7 @@ app.get('/image/room/:slug', (req, res) => {
 
 app.get('/image/archive/:id', (req, res) => {
   const archive = archives.find((entry) => entry.id === req.params.id);
-  if (!archive) {
+  if (!archive || isArchiveDeleted(archive) || isRoomHidden(archive.roomSlug)) {
     res.status(404).send('Image page not found');
     return;
   }
