@@ -419,3 +419,54 @@ img { max-width: 100%; display: block; }
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+
+
+
+
+
+
+/* Homepage hero layout fix */
+.hero-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 0.9fr;
+  gap: 28px;
+  align-items: start;
+}
+
+/* keep preview from stretching */
+.hero-grid img,
+.hero-grid canvas {
+  max-width: 100%;
+  height: auto;
+}
+
+
+
+/* Move live indicator to bottom left */
+.live-chip,
+.live-now,
+.room-live {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  top: auto;
+}
+
+/* make sure preview container is positioned */
+.room-preview,
+.room-card-preview,
+.preview-wrap {
+  position: relative;
+}
+
+
+.live-chip,
+.live-now,
+.room-live {
+  background: rgba(0,0,0,0.65);
+  backdrop-filter: blur(6px);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
