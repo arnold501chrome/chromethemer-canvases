@@ -540,3 +540,32 @@ img { max-width: 100%; display: block; }
     justify-self: stretch;
   }
 }
+
+
+
+
+
+/* Move homepage live preview chip to bottom-right */
+
+.ct-preview {
+  position: relative;
+}
+
+.ct-preview .ct-live,
+.ct-preview .ct-live-preview,
+.ct-preview .ct-preview-chip {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  top: auto !important;
+  left: auto !important;
+}
+
+
+.ct-preview .ct-live,
+.ct-preview .ct-live-preview,
+.ct-preview .ct-preview-chip {
+  background: rgba(15,16,32,0.82);
+  border: 1px solid rgba(255,255,255,0.14);
+  backdrop-filter: blur(6px);
+}
